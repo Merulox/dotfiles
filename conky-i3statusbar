@@ -42,35 +42,35 @@ conky.text = [[
     {
       "full_text": " | ",
       "color": "\#FFFFFF",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
     {
       "full_text": "  ${cpu cpu0}%",
       "color": "\#fdf6e3",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
     {
       "full_text": " | ",
       "color": "\#FFFFFF",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
     {
       "full_text": "  ${mem}/${memmax} (${memperc}%) ",
       "color": "\#fdf6e3",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
     {
       "full_text": " | ",
       "color": "\#FFFFFF",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
@@ -78,42 +78,42 @@ conky.text = [[
       #"full_text": "  ${texeci 1800 sleep 5; aptitude search '~U' | wc -l} updates ",
       "full_text": "  ${texeci 1800 sleep 5; checkupdates | wc -l} updates",
       "color": "\#fdf6e3",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
+#    {
+#      "full_text": " | ",
+#      "color": "\#FFFFFF",
+#      "background": "\#000000",
+#      "separator": true,
+#      "separator_block_width": 0
+#    },
+#    {
+#      "full_text": "  down: ${downspeed enp0s31f6} up: ${upspeed enp0s31f6} ",
+#      "color": "\#fdf6e3",
+#      "background": "\#000000",
+#      "separator": true,
+#      "separator_block_width": 0
+#    },
     {
       "full_text": " | ",
       "color": "\#FFFFFF",
-      "background": "\#2F2F2F",
-      "separator": true,
-      "separator_block_width": 0
-    },
-    {
-      "full_text": "  down: ${downspeed enp0s31f6} up: ${upspeed enp0s31f6} ",
-      "color": "\#fdf6e3",
-      "background": "\#2F2F2F",
-      "separator": true,
-      "separator_block_width": 0
-    },
-    {
-      "full_text": " | ",
-      "color": "\#FFFFFF",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
     {
       "full_text": "  ${time %a, %d/%m/%y} ",
       "color": "\#fdf6e3",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     },
     {
       "full_text": "  ${time %H:%M:%S} ",
       "color": "\#fdf6e3",
-      "background": "\#2F2F2F",
+      "background": "\#000000",
       "separator": true,
       "separator_block_width": 0
     }
