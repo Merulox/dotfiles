@@ -26,12 +26,12 @@ set $mod Mod4
 #################  Xander and xinput
 
 # current displays
-exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
-exec --no-startup-id xrandr --output HDMI-0 --rotate left
-exec --no-startup-id xinput set-prop 12 'libinput Scroll Method Enabled' 0 0 1
-exec --no-startup-id xinput set-prop 12 'Evdev Middle Button Emulation' 1
+
+exec --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
+#exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
+#exec --no-startup-id xrandr --output HDMI-0 --rotate left
+exec --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
 exec --no-startup-id redshift
-exec --no-startup-id alacritty -e  XDG_CURRENT_DESKTOP=KDE
 exec_always --no-startup-id /home/merulox1/.local/bin/kensington.sh
 exec_always alacritty -e xset r rate 300 25
 ################# autostart - execute applications at boot time
@@ -40,22 +40,23 @@ exec --no-startup-id vivaldi-stable
    for_window [class="Vivaldi-stable"] focus
 exec --no-startup-id /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
 exec --no-startup-id redshift
-exec --no-startup-id element-desktop
+#exec --no-startup-id element-desktop
 exec --no-startup-id nm-applet
 exec_always --no-startup-id numlockx on
 exec --no-startup-id variety
-exec --no-startup-id trackma-qt
+#exec --no-startup-id trackma-qt
 exec --no-startup-id xfce4-power-manager &
 exec --no-startup-id fcitx -d
-exec --no-startup-id psi-plus
-exec --no-startup-id thunderbird
-exec --no-startup-id pycharm
-exec --no-startup-id code-oss
-exec --no-startup-id anki
+#exec --no-startup-id psi-plus
+#exec --no-startup-id thunderbird
+#exec --no-startup-id pycharm
+#exec --no-startup-id code-oss
+#exec --no-startup-id anki
 exec --no-startup-id bitwarden-desktop
 exec --no-startup-id clipmenud
 exec --no-startup-id WINEPREFIX="/home/merulox1/Music/.wine32MBee" wine "/home/merulox1/Music/.wine32MBee/drive_c/users/merulox1/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk" 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
+
 ################# applications keyboard shortcuts  
 
 bindsym $mod+Return exec --no-startup-id alacritty;focus
@@ -70,6 +71,8 @@ bindsym $mod+i exec --no-startup-id termite -e ncpamixer -t mixer
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
 bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
 bindsym $mod+c exec --no-startup-id clipmenu
+bindsym mod1+ctrl+space exec xkb-switch -n
+bindsym mod1+ctrl+0x27 exec rofimoji
 
 ################# wokspaces
 
@@ -192,7 +195,7 @@ bindsym $mod+y focus output left
 # restart i3 inplace (preserves your layout/session, can be used to upgrade i3)
 bindsym $mod+Shift+Ctrl+r restart
 # reload the configuration file
-bindsym $mod+Shift+r reload
+bindsym $mod+ctrl+r reload
 
 # kill focused window
 bindsym $mod+Shift+c kill
