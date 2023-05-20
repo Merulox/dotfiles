@@ -273,10 +273,10 @@ bindsym $mod+d focus child
 ################# resize  
 
 # Resizing by 5
-bindsym $mod+shift+Right  resize shrink width 5 px or 5 ppt
-bindsym $mod+shift+Up resize grow height 5 px or 5 ppt
-bindsym $mod+shift+Down resize shrink height 5 px or 5 ppt
-bindsym $mod+shift+Left  resize grow width 5 px or 5 ppt
+bindsym $mod+shift+Left  resize shrink width 10 px or 10 ppt
+bindsym $mod+shift+Down resize grow height 10 px or 10 ppt
+bindsym $mod+shift+Up resize shrink height 10 px or 10 ppt
+bindsym $mod+shift+Right  resize grow width 10 px or 10 ppt
 
 # Floating windows
 
