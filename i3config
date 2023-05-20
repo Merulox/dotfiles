@@ -27,15 +27,16 @@ set $mod Mod4
 
 # current displays
 
+exec_always ~/.local/bin/disable-standby-fs.py
 exec --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
 #exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
 #exec --no-startup-id xrandr --output HDMI-0 --rotate left
-exec --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
+exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
 exec --no-startup-id redshift
 exec_always --no-startup-id /home/merulox1/.local/bin/kensington.sh
 exec_always alacritty -e xset r rate 300 25
 ################# autostart - execute applications at boot time
-exec_always --no-startup-id autotiling
+ exec_always --no-startup-id autotiling
 exec --no-startup-id vivaldi-stable
    for_window [class="Vivaldi-stable"] focus
 exec --no-startup-id /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
@@ -48,17 +49,24 @@ exec --no-startup-id variety
 exec --no-startup-id xfce4-power-manager &
 exec --no-startup-id fcitx -d
 #exec --no-startup-id psi-plus
-#exec --no-startup-id thunderbird
+ exec --no-startup-id thunderbird
 #exec --no-startup-id pycharm
 #exec --no-startup-id code-oss
 #exec --no-startup-id anki
 exec --no-startup-id bitwarden-desktop
+exec --no-startup-id clementine
+exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
-exec --no-startup-id WINEPREFIX="/home/merulox1/Music/.wine32MBee" wine "/home/merulox1/Music/.wine32MBee/drive_c/users/merulox1/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk" 
+exec --no-startup-id discord
+exec --no-startup-id Cider
+#exec --no-startup-id WINEPREFIX="/home/merulox1/Music/.wine32MBee" wine "/home/merulox1/Music/.wine32MBee/drive_c/users/merulox1/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk" 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 
 ################# applications keyboard shortcuts  
 
+bindsym $mod+mod1+k exec --no-startup-id kcalc
+bindsym $mod+mod1+p exec --no-startup-id pavucontrol
+bindsym $mod+mod1+s exec --no-startup-id systemmonitor
 bindsym $mod+Return exec --no-startup-id alacritty;focus
 bindsym $mod+x exec --no-startup-id xfce4-terminal --drop-down; focus
 bindsym $mod+Shift+Return exec --no-startup-id dolphin
@@ -67,7 +75,7 @@ bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' 
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
 bindsym $mod+w exec --no-startup-id dmenu-win
 bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
-bindsym $mod+i exec --no-startup-id termite -e ncpamixer -t mixer
+bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer 
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
 bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
 bindsym $mod+c exec --no-startup-id clipmenu
@@ -201,6 +209,9 @@ bindsym $mod+ctrl+r reload
 bindsym $mod+Shift+c kill
 bindsym $mod+0x2f kill
 
+# swap
+bindsym $mod+shift+s mark "_swapee", focus left, swap with mark "_swapee", focus right, unmark "_swapee" 
+
 ################# Moving around               
 
 # Use Mouse+$mod to drag floating windows to their wanted position
@@ -269,15 +280,15 @@ bindsym $mod+shift+Left  resize grow width 5 px or 5 ppt
 
 # Floating windows
 
-bindsym $mod+mod1+Right move right 150 px 
-bindsym $mod+mod1+Up move up 150 px 
-bindsym $mod+mod1+Down move down 150 px 
-bindsym $mod+mod1+Left move left 150 px 
+bindsym $mod+mod1+ctrl+Right move right 150 px 
+bindsym $mod+mod1+ctrl+Up move up 150 px 
+bindsym $mod+mod1+ctrl+Down move down 150 px 
+bindsym $mod+mod1+ctrl+Left move left 150 px 
 
-bindsym $mod+mod1+shift+Left resize shrink width 100 px or 100 ppt
-bindsym $mod+mod1+shift+Down resize grow height 100 px or 100 ppt
-bindsym $mod+mod1+shift+Up resize shrink height 100 px or 100 ppt
-bindsym $mod+mod1+shift+Right resize grow width 100 px or 100 ppt
+bindsym $mod+mod1+shift+ctrl+Left resize shrink width 100 px or 100 ppt
+bindsym $mod+mod1+shift+ctrl+Down resize grow height 100 px or 100 ppt
+bindsym $mod+mod1+shift+ctrl+Up resize shrink height 100 px or 100 ppt
+bindsym $mod+mod1+shift+ctrl+Right resize grow width 100 px or 100 ppt
 
 ################# choose the font                  
 
@@ -289,24 +300,27 @@ font pango:Terminus 12
 ################# assign applications to workspaces 
 
   assign [class="element-desktop|element|Element"]  $ws13
-  assign [class="thunderbird"]   $ws11
+  assign [class="thunderbird|Thunderbird"]   $ws11
   assign [class="musicbee.exe"]  $ws12
   assign [class="Psi+"] $ws14
   assign [class="bitwarden|Bitwarden|Bitwarden-desktop"] $ws8
   assign [class="code-oss"] $ws2
   assign [class="anki|Anki"] $ws3
   assign [class="jetbrains-pycharm-ce"] $ws6
-
+  assign [class="Rednotebook|rednotebook"] $ws7
+  assign [class="Clementine|clementine"] $ws12
+  assign [class="Discord|discord"] $ws5
 
 ################# floating or tiled rules         
 #Personal:
 
-for_window [title="mixer"] floating enable
+for_window [title="ncpamixer"] floating enable
 
 #Arcolinux defaults:
 
 # floating enabled from some programs - find with xprop
 
+for_window [class="kcalc"] floating enable
 for_window [class="Arcolinux-welcome-app.py"] floating enable
 # for_window [class="Arcolinux-tweak-tool.py"] floating enable
 for_window [class="Arcolinux-calamares-tool.py"] floating enable
@@ -363,13 +377,13 @@ for_window [class="Alacritty"] focus
 
 # Variety keybindings mod1 = ALT
 # next wallpaper
- bindsym $mod+mod1+ctrl+Right exec --no-startup-id variety -n
+ bindsym mod1+ctrl+Right exec --no-startup-id variety -n
 # previous wallpaper
- bindsym $mod+mod1+ctrl+Left exec --no-startup-id variety -p
+ bindsym mod1+ctrl+Left exec --no-startup-id variety -p
 # pause wallpaper
- bindsym $mod+mod1+ctrl+Up exec --no-startup-id variety --pause
+ bindsym mod1+ctrl+Up exec --no-startup-id variety --pause
 # resume wallpaper
- bindsym $mod+mod1+ctrl+Down exec --no-startup-id variety --resume
+ bindsym mod1+ctrl+Down exec --no-startup-id variety --resume
 
 ################# audio settings                   
 
@@ -537,7 +551,7 @@ bar {
 ################# Scratchpad
 
 # move the currently focused window to the scratchpad
- bindsym $mod+mod1+ctrl+s move scratchpad
+ bindsym $mod+shift+ctrl+s move scratchpad
 
 # Show the next scratchpad window or hide the focused scratchpad window.
 # If there are multiple scratchpad windows, this command cycles through them.
