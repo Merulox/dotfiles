@@ -64,6 +64,7 @@ exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylu
 
 ################# applications keyboard shortcuts  
 
+bindsym $mod+mod1+ctrl+w exec --no-startup-id artha
 bindsym $mod+mod1+k exec --no-startup-id kcalc
 bindsym $mod+mod1+p exec --no-startup-id pavucontrol
 bindsym $mod+mod1+s exec --no-startup-id systemmonitor
