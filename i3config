@@ -15,8 +15,8 @@
 
 ################# variables and imports
 
-set $firstMonitor DP-4
-set $secondMonitor HDMI-0
+set $firstMonitor DP-3
+set $secondMonitor HDMI-1
 
 #exec --no-startup-id ~/.config/i3/autostart.sh
 #exec --no-startup-id ~/.xmodmaprc
@@ -53,7 +53,7 @@ exec --no-startup-id fcitx -d
 #exec --no-startup-id pycharm
 #exec --no-startup-id code-oss
 #exec --no-startup-id anki
-exec --no-startup-id bitwarden-desktop
+exec --no-startup-id bitwarden
 exec --no-startup-id clementine
 exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
@@ -74,7 +74,7 @@ bindsym $mod+Shift+Return exec --no-startup-id dolphin
 bindsym Print exec --no-startup-id flameshot gui
 bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'NotoMonoRegular:bold:pixelsize=14'
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
-bindsym $mod+w exec --no-startup-id dmenu-win
+bindsym $mod+w exec --no-startup-id ~/.local/bin/dmenu-win
 bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
 bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer 
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
@@ -386,26 +386,6 @@ for_window [class="Alacritty"] focus
 # resume wallpaper
  bindsym mod1+ctrl+Down exec --no-startup-id variety --resume
 
-################# audio settings                   
-
-bindsym XF86AudioRaiseVolume exec --no-startup-id "amixer -D pulse sset Master '5%+'"
-bindsym XF86AudioLowerVolume exec --no-startup-id "amixer -D pulse sset Master '5%-'"
-bindsym XF86AudioMute exec --no-startup-id "amixer -D pulse set Master toggle"
-# https://github.com/acrisci/playerctl/
-bindsym XF86AudioPlay exec --no-startup-id playerctl play-pause
-bindsym XF86AudioNext exec --no-startup-id playerctl next
-bindsym XF86AudioPrev exec --no-startup-id playerctl previous
-bindsym XF86AudioStop exec --no-startup-id playerctl stop
-# bindsym XF86AudioPlay exec --no-startup-id "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause"
-# bindsym XF86AudioNext exec --no-startup-id "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next"
-# bindsym XF86AudioPrev exec --no-startup-id "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous"
-# bindsym XF86AudioStop exec --no-startup-id "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Stop"
-
-################# xbacklight                       
-
-bindsym XF86MonBrightnessUp exec --no-startup-id xbacklight -inc 20 # increase screen brightness
-bindsym XF86MonBrightnessDown exec --no-startup-id xbacklight -dec 20 # decrease screen brightness
-
 ################# bar toggle                       
 
 # bar toggle, hide or show
@@ -449,21 +429,12 @@ gaps outer 2
 # smart_gaps on
 # smart_borders on
 
-################# picom of i3wm                  
-
-# if you want transparency on non-focused windows, ...
- exec_always --no-startup-id picom --config ~/.config/i3/picom.conf
-
-# bindsym control+mod1+o exec --no-startup-id ~/.config/i3/scripts/picom-toggle.sh
-
 ################# bar
 
-#exec_always --no-startup-id ~/.config/polybar/launch.sh &
-
 bar {
-    height 28
+    height 25
     workspace_buttons yes
-	font pango:Terminus 14
+	font pango:Terminus 15
 	# position top
     strip_workspace_numbers yes
     position bottom
@@ -473,48 +444,9 @@ bar {
       tray_output $firstMonitor
     # tray_output $secondMonitor
 
-    # OPTION 1 : i3status
+# status_command i3status
 
-    # type status_command i3status without the config file and
-    # you will get the standard i3status bar
-    # Second one is the standard statusbar with my personal settings
-
-	# status_command i3status
-#    status_command i3status -c ~/.config/i3/i3status.conf
-
-    # OPTION 2 : i3blocks
-
-    # https://github.com/vivien/i3blocks
-    # another way to provide text in the statusbar
-    # put hastag in front if not installed
-
-    # status_command i3blocks
-    # status_command i3blocks -c ~/.config/i3/i3blocks.conf
-    # status_command i3blocks -c ~/.config/i3/i3blocks-rainbow.conf
-    # status_command i3blocks -c ~/.config/i3/i3blocks-original.conf
-    # status_command i3blocks -c ~/.config/i3/i3blocks-awesome.conf
-
-
-    # OPTION 3 : conky
-
-    # You can also replace the istatus bar with a conky
-    # start-conky-i3statusbar.sh is started and conky will follow
-    # documentation : https://i3wm.org/docs/user-contributed/conky-i3bar.html
-    # conky configuration is in conky-i3statusbar
-
-	 status_command ~/.config/i3/start-conky-i3statusbar.sh
-
-    # OPTION 4 : polybar
-
-    # polybar is launched elsewhere - search for the word
-    # from the opening of the "bar {...}" till the end has to go or hashtagged out
-    # in order for the system trayicons to show up in polybar
-
-    ##START THEMING BAR
-    # Theme name : ArcoLinux Default
-
-    # i3 bar colors
-    # variable border background Text
+     status_command i3blocks -c ~/.config/i3blocks/config
 
     colors {
         background #000000
@@ -522,14 +454,15 @@ bar {
         separator #666666
 
         # colorclass           border  backgr. text
+
         focused_workspace  #4c7899 #285577 #ffffff
         active_workspace   #333333 #5f676a #ffffff
         inactive_workspace #333333 #222222 #888888
         urgent_workspace   #2f343a #900000 #ffffff
-        binding_mode       #2f343a #900000 #ffffff
+        binding_mode       #2f343a #900000 #ffffff 
         }
 
-    }
+}
     ##STOP THEMING BAR
 
     ##START THEMING WM
@@ -538,16 +471,13 @@ bar {
     # Window color settings
     # class                 border  backgr. text    indicator
     client.focused          #6790EB #6790EB #e5e5e5 #6790EB
-    client.unfocused        #222222 #222222 #aaaaaa #222222
-    client.focused_inactive #222222 #222222 #a9a9a9 #222222
+  #  client.unfocused        #222222 #222222 #aaaaaa #222222
+  #  client.focused_inactive #222222 #222222 #a9a9a9 #222222
     client.placeholder      #222222 #222222 #aaaaaa #222222
     client.urgent           #d42121 #d42121 #f7f7f7 #d42121
 
     client.background       #242424
 
-    ##STOP THEMING WM
-
-######################################## THE END 
 
 ################# Scratchpad
 
@@ -577,25 +507,6 @@ bar {
 # The side buttons move the window around
 # bindsym button9 move left
 # bindsym button8 move right
-
-################# keyboard control                 
-
-# NOT USED
-
-# Settings of arcolinux will be applied
-# exec --no-startup-id setxkbmap be
-# exec --no-startup-id setxkbmap us
-
-################# unclutter                        
-
-# NOT USED
-
-# get the mouse out of the way with unclutter
-# exec --no-startup-id unclutter
-#############S### Start of all the settings
-
-# get the mouse out of the way with unclutter
-# exec --no-startup-id unclutter
 
 
 #no borders when 1 window
