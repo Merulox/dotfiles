@@ -7,11 +7,21 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
+      <home-manager/nixos>
+      ./unstable.nix
     ];
+  # Home-manager
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    users.merulox = import ./home.nix;
+  };
+
+
   # Pulseaudio
   hardware.pulseaudio.enable = true;
   hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
-
+  hardware.bluetooth.enable = true;
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
@@ -48,20 +58,28 @@
     extraGroups = [ "networkmanager" "wheel" ];
     packages = with pkgs; [];
   };
+  # Default Shell
+  users.defaultUserShell = pkgs.zsh;
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
-  # List packages installed in system profile. To search, run:
-  # $ nix search wget
+
+  # Environment variables
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
 };
 
-  #Fonts
+  # Desktop integration portals
+  xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+  xdg.portal.enable = true;
+
+  # Fonts
   fonts.fonts = with pkgs; [
   terminus_font
 ];
+  # List packages installed in system profile. To search, run:
+  # $ nix search wget
   # System Packages
   environment.systemPackages = with pkgs; [
   vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
@@ -86,6 +104,11 @@
   pavucontrol
   rednotebook
   cinnamon.nemo
+  udisks
+  cinnamon.nemo-fileroller
+  libsForQt5.ark
+  python38
+  libGL
   gnome.gedit
   lxappearance
   libsForQt5.oxygen
@@ -95,6 +118,19 @@
   xdotool
   libsForQt5.qtcurve
   libsForQt5.qtstyleplugins
+  variety
+  libsForQt5.dolphin
+  blueman
+  rxvt-unicode-unwrapped-emoji
+  feh
+  nm-tray
+  yt-dlp
+  obsidian
+  nix-index
+  libGL
+  libglvnd
+  pkg-config
+  calibre
   ];
 
 programs.zsh = {
@@ -114,13 +150,15 @@ programs.zsh = {
   # };
 
   # List services that you want to enable:
+    services.blueman.enable = true;    
+    services.flatpak.enable = true;
 
   # Enable the OpenSSH daemon.
   # services.openssh.enable = true;
 
   # Open ports in the firewall.
-  # networking.firewall.allowedTCPPorts = [ ... ];
-  # networking.firewall.allowedUDPPorts = [ ... ];
+    networking.firewall.allowedTCPPorts = [8080];
+    networking.firewall.allowedUDPPorts = [8080];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
 
