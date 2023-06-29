@@ -432,7 +432,7 @@ gaps outer 2
 ################# bar
 
 bar {
-    height 25
+    height 28
     workspace_buttons yes
 	font pango:Terminus 15
 	# position top
