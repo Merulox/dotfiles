@@ -1,14 +1,20 @@
 # Edit this configuration file to define what should be installed on
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
-{ config, pkgs, ... }:
-
+{ config, pkgs, lib, ... }:
+let
+  aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
+in
 {
+
+
+  # Imports
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
       <home-manager/nixos>
       ./unstable.nix
+      aagl-gtk-on-nix.module
     ];
   # Home-manager
   home-manager = {
@@ -17,7 +23,33 @@
     users.merulox = import ./home.nix;
   };
 
+  # Opengl hardware
+  hardware.opengl = {
+    enable = true;
+    driSupport = true;
+    driSupport32Bit = true;
+  };
+  # Nvidia hardware
+    hardware.nvidia = {
 
+    # Modesetting is needed for most wayland compositors
+    modesetting.enable = true;
+
+    # Use the open source version of the kernel module
+    # Only available on driver 515.43.04+
+    open = true;
+
+    # Enable the nvidia settings menu
+    nvidiaSettings = true;
+
+    # Optionally, you may need to select the appropriate driver version for your specific GPU.
+    package = config.boot.kernelPackages.nvidiaPackages.stable;
+  };
+  # Nvidia drivers
+  nixpkgs.config.allowUnfreePredicate = pkg:
+    builtins.elem (lib.getName pkg) [
+      "nvidia-x11"
+    ];
   # Pulseaudio
   hardware.pulseaudio.enable = true;
   hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
@@ -45,10 +77,11 @@
   # Configure keymap in X11
   services.xserver = {
     enable = true;
-    layout = "us";
+    layout = "us,fr";
     xkbVariant = "";
     displayManager.sddm.enable = true;
     windowManager.i3.enable = true; 
+    videoDrivers = ["nvidia"];
  };
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
@@ -58,6 +91,8 @@
     extraGroups = [ "networkmanager" "wheel" ];
     packages = with pkgs; [];
   };
+  # Trusted Users
+  nix.settings.trusted-users = [ "root" "merulox" ];
   # Default Shell
   users.defaultUserShell = pkgs.zsh;
 
@@ -98,13 +133,20 @@
   discord
   flameshot
   libsForQt5.qt5ct
+  gnumake
+  dunst
+  playerctl
+  killall
+  mpv
+  vlc
   zsh
+  coreutils-full
+  toybox
   neofetch
   ncpamixer
   pavucontrol
   rednotebook
   cinnamon.nemo
-  udisks
   cinnamon.nemo-fileroller
   libsForQt5.ark
   python38
@@ -131,15 +173,39 @@
   libglvnd
   pkg-config
   calibre
+  arandr
+  j4-dmenu-desktop
+  wgnord
+  cider
+  jq
+  curl 
+  wireguard-tools
+  openresolv
+  xkb-switch-i3
+  xorg.xkill
+  obs-studio
   ];
 
-programs.zsh = {
+  # Overlays
+ # nixpkgs.overlays = [ (import <nixpkgs> {}).overrideAttrs (oldAttrs: {
+ #   modules = oldAttrs.modules // [ /etc/nixos/modules/nordvpn.nix ];
+ # }) ];
+
+
+  # Programs
+  programs.zsh = {
   enable = true;
   shellAliases = {
     ll = "ls -l";
     update = "sudo nixos-rebuild switch"; i3config = "vim ~/.config/i3/config"; zshrc = "vim ~/.zshrc"; aliases = "vim ~/.aliases"; bconnect="~/.local/bin/bconnect"; dconnect = "~/.local/bin/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo vim /etc/nixos/configuration.nix"; 
   };
 };
+
+  # Anime game launcher
+  programs.anime-game-launcher.enable = true;
+
+  # Flakes
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
@@ -152,6 +218,7 @@ programs.zsh = {
   # List services that you want to enable:
     services.blueman.enable = true;    
     services.flatpak.enable = true;
+    services.udisks2.enable = true;
 
   # Enable the OpenSSH daemon.
   # services.openssh.enable = true;
@@ -160,7 +227,7 @@ programs.zsh = {
     networking.firewall.allowedTCPPorts = [8080];
     networking.firewall.allowedUDPPorts = [8080];
   # Or disable the firewall altogether.
-  # networking.firewall.enable = false;
+  #  networking.firewall.enable = false;
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
