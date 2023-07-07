@@ -15,7 +15,7 @@
 
 ################# variables and imports
 
-set $firstMonitor DP-3
+set $firstMonitor DP-0
 set $secondMonitor HDMI-1
 
 #exec --no-startup-id ~/.config/i3/autostart.sh
@@ -35,16 +35,18 @@ exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-m
 exec --no-startup-id redshift
 exec_always --no-startup-id /home/merulox1/.local/bin/kensington.sh
 exec_always alacritty -e xset r rate 300 25
+
 ################# autostart - execute applications at boot time
+exec_always --no-startup-id feh --bg-fil ~/pictures/variety/wa.png 
  exec_always --no-startup-id autotiling
-exec --no-startup-id vivaldi-stable
+exec --no-startup-id vivaldi
    for_window [class="Vivaldi-stable"] focus
 exec --no-startup-id /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
 exec --no-startup-id redshift
 #exec --no-startup-id element-desktop
-exec --no-startup-id nm-applet
+exec --no-startup-id nm-tray
 exec_always --no-startup-id numlockx on
-exec --no-startup-id variety
+# exec --no-startup-id variety
 #exec --no-startup-id trackma-qt
 exec --no-startup-id xfce4-power-manager &
 exec --no-startup-id fcitx -d
@@ -75,7 +77,7 @@ bindsym Print exec --no-startup-id flameshot gui
 bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'NotoMonoRegular:bold:pixelsize=14'
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
 bindsym $mod+w exec --no-startup-id ~/.local/bin/dmenu-win
-bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
+#bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
 bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer 
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
 bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
@@ -83,10 +85,25 @@ bindsym $mod+c exec --no-startup-id clipmenu
 bindsym mod1+ctrl+space exec xkb-switch -n
 bindsym mod1+ctrl+0x27 exec rofimoji
 
-################# wokspaces
+################# logout
+
+set $mode_system  (k) lock, (l) logout, (u) suspend, (h) hibernate, (r) reboot, (Shift+s) shutdown
+mode "$mode_system" {
+    bindsym k exec --no-startup-id betterlockscreen -l, mode "default"
+    bindsym l exec --no-startup-id i3exit logout, mode "default"
+    bindsym u exec --no-startup-id i3exit suspend, mode "default"
+    bindsym h exec --no-startup-id i3exit hibernate, mode "default"
+    bindsym r exec --no-startup-id i3exit reboot, mode "default"
+    bindsym Shift+s exec --no-startup-id i3exit shutdown, mode "default"
+
+    # back to normal: Enter or Escape
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+0xff1b mode "$mode_system"
 
 
-# workspaces
+####### workspaces
 set $wsw1 "1:w1"
 set $wsw2 "2:w2"
 set $wsw3 "3:w3"
@@ -308,8 +325,9 @@ font pango:Terminus 14
   assign [class="code-oss"] $ws2
   assign [class="anki|Anki"] $ws3
   assign [class="jetbrains-pycharm-ce"] $ws6
+  assign [class="vivaldi|Vivaldi"] $ws1
   assign [class="Rednotebook|rednotebook"] $ws7
-  assign [class="Clementine|clementine"] $ws12
+  assign [class="Clementine|clementine|cider|Cider"] $ws12
   assign [class="Discord|discord"] $ws5
 
 ################# floating or tiled rules         
@@ -378,13 +396,13 @@ for_window [class="Alacritty"] focus
 
 # Variety keybindings mod1 = ALT
 # next wallpaper
- bindsym mod1+ctrl+Right exec --no-startup-id variety -n
+ #bindsym mod1+ctrl+Right exec --no-startup-id variety -n
 # previous wallpaper
- bindsym mod1+ctrl+Left exec --no-startup-id variety -p
+ #bindsym mod1+ctrl+Left exec --no-startup-id variety -p
 # pause wallpaper
- bindsym mod1+ctrl+Up exec --no-startup-id variety --pause
+ #bindsym mod1+ctrl+Up exec --no-startup-id variety --pause
 # resume wallpaper
- bindsym mod1+ctrl+Down exec --no-startup-id variety --resume
+ #bindsym mod1+ctrl+Down exec --no-startup-id variety --resume
 
 ################# bar toggle                       
 
@@ -446,7 +464,7 @@ bar {
 
 # status_command i3status
 
-     status_command i3blocks -c ~/.config/i3blocks/config
+     status_command i3blocks -c ~/i3blocks/i3blocks.conf
 
     colors {
         background #000000
