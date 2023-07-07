@@ -23,6 +23,14 @@ in
     users.merulox = import ./home.nix;
   };
 
+  # Flakes
+    nix = {
+    package = pkgs.nixFlakes;
+    extraOptions = ''
+      experimental-features = nix-command flakes
+    '';
+  };
+
   # Opengl hardware
   hardware.opengl = {
     enable = true;
@@ -94,7 +102,7 @@ in
   # Trusted Users
   nix.settings.trusted-users = [ "root" "merulox" ];
   # Default Shell
-  users.defaultUserShell = pkgs.zsh;
+  users.defaultUserShell = pkgs.fish;
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
@@ -103,12 +111,12 @@ in
   # Environment variables
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
+  XDG_CURRENT_DESKTOP = "kde";
 };
 
   # Desktop integration portals
-  xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+  xdg.portal.extraPortals = [ pkgs.libsForQt5.xdg-desktop-portal-kde ];
   xdg.portal.enable = true;
-
   # Fonts
   fonts.fonts = with pkgs; [
   terminus_font
@@ -127,21 +135,32 @@ in
   alacritty
   bitwarden
   thunderbird
+  xdg-desktop-portal
+  libsForQt5.xdg-desktop-portal-kde
   autotiling
   xfce.thunar
   ntfs3g  
   discord
   flameshot
   libsForQt5.qt5ct
+  libsForQt5.kdialog
   gnumake
   dunst
   playerctl
   killall
   mpv
   vlc
-  zsh
   coreutils-full
   toybox
+  libsForQt5.kate
+  gnome-icon-theme
+  ayu-theme-gtk
+  arc-theme
+  arc-kde-theme
+  clementine
+  wine
+  winetricks
+  dracula-theme
   neofetch
   ncpamixer
   pavucontrol
@@ -184,6 +203,14 @@ in
   xkb-switch-i3
   xorg.xkill
   obs-studio
+  anki-bin
+  toipe
+  ventoy-full
+  zplug
+  fish
+  fishPlugins.fzf
+  zoxide
+  betterlockscreen
   ];
 
   # Overlays
@@ -193,14 +220,12 @@ in
 
 
   # Programs
-  programs.zsh = {
-  enable = true;
-  shellAliases = {
-    ll = "ls -l";
-    update = "sudo nixos-rebuild switch"; i3config = "vim ~/.config/i3/config"; zshrc = "vim ~/.zshrc"; aliases = "vim ~/.aliases"; bconnect="~/.local/bin/bconnect"; dconnect = "~/.local/bin/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo vim /etc/nixos/configuration.nix"; 
-  };
-};
+  programs.fish.enable = true;
 
+  # Shell Aliases
+  environment.shellAliases = {
+    update = "sudo nixos-rebuild switch"; i3config = "vim ~/.config/i3/config"; zshrc = "vim ~/.zshrc"; aliases = "vim ~/.aliases"; bconnect="~/.local/bin/bconnect"; dconnect = "~/.local/bin/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo vim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "sudo vim /etc/nixos/home.nix";}; 
+ 
   # Anime game launcher
   programs.anime-game-launcher.enable = true;
 
