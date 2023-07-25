@@ -32,7 +32,7 @@ exec --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
 #exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
 #exec --no-startup-id xrandr --output HDMI-0 --rotate left
 exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
-exec --no-startup-id redshift
+#exec --no-startup-id redshift
 exec_always --no-startup-id /home/merulox1/.local/bin/kensington.sh
 exec_always alacritty -e xset r rate 300 25
 
@@ -42,14 +42,14 @@ exec_always --no-startup-id feh --bg-fil ~/pictures/variety/wa.png
 exec --no-startup-id vivaldi
    for_window [class="Vivaldi-stable"] focus
 exec --no-startup-id /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
-exec --no-startup-id redshift
+# exec --no-startup-id redshift
 #exec --no-startup-id element-desktop
 exec --no-startup-id nm-tray
 exec_always --no-startup-id numlockx on
 # exec --no-startup-id variety
 #exec --no-startup-id trackma-qt
 exec --no-startup-id xfce4-power-manager &
-exec --no-startup-id fcitx -d
+exec --no-startup-id fcitx
 #exec --no-startup-id psi-plus
  exec --no-startup-id thunderbird
 #exec --no-startup-id pycharm
@@ -84,6 +84,7 @@ bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
 bindsym $mod+c exec --no-startup-id clipmenu
 bindsym mod1+ctrl+space exec xkb-switch -n
 bindsym mod1+ctrl+0x27 exec rofimoji
+bindsym $mod+shift+w exec warpd --hint2
 
 ################# logout
 
@@ -452,7 +453,7 @@ gaps outer 2
 bar {
     height 28
     workspace_buttons yes
-	font pango:Terminus 15
+	font pango:Terminus 14
 	# position top
     strip_workspace_numbers yes
     position bottom
