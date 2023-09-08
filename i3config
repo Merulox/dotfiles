@@ -16,7 +16,7 @@
 ################# variables and imports
 
 set $firstMonitor DP-0
-set $secondMonitor HDMI-1
+set $secondMonitor HDMI-0
 
 #exec --no-startup-id ~/.config/i3/autostart.sh
 #exec --no-startup-id ~/.xmodmaprc
@@ -28,7 +28,7 @@ set $mod Mod4
 # current displays
 
 exec_always ~/.local/bin/disable-standby-fs.py
-exec --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
+exec_always --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
 #exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
 #exec --no-startup-id xrandr --output HDMI-0 --rotate left
 exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
@@ -50,7 +50,7 @@ exec_always --no-startup-id numlockx on
 #exec --no-startup-id trackma-qt
 exec --no-startup-id xfce4-power-manager &
 exec --no-startup-id fcitx
-#exec --no-startup-id psi-plus
+exec --no-startup-id psi-plus
  exec --no-startup-id thunderbird
 #exec --no-startup-id pycharm
 #exec --no-startup-id code-oss
@@ -61,6 +61,8 @@ exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
 exec --no-startup-id discord
 exec --no-startup-id Cider
+exec --no-startup-id element-desktop
+exec --no-startup-id spotify
 #exec --no-startup-id WINEPREFIX="/home/merulox1/Music/.wine32MBee" wine "/home/merulox1/Music/.wine32MBee/drive_c/users/merulox1/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk" 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 
