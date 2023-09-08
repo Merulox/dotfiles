@@ -4,6 +4,8 @@
 { config, pkgs, lib, ... }:
 let
   aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
+  nix-gaming = import (builtins.fetchTarball "https://github.com/fufexan/nix-gaming/archive/master.tar.gz");
+
 in
 {
 
@@ -72,6 +74,14 @@ in
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
+  # Mount drive
+   #fileSystems."/mnt/data" =
+    #{ device = "/dev/sda1";
+    #  fsType = "ntfs-3g"; 
+    #  options = [ "rw" "uid=C636A0CA36A0BCB5"];
+    #};
+  boot.supportedFilesystems = [ "ntfs" ];
+
   # Opentabletdriver
   hardware.opentabletdriver.enable = true;
   hardware.opentabletdriver.daemon.enable = true;
@@ -119,15 +129,14 @@ in
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
-
   # Environment variables
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
-  XDG_CURRENT_DESKTOP = "kde";
+  #XDG_CURRENT_DESKTOP = "kde";
 };
 
   # Desktop integration portals
-  xdg.portal.extraPortals = [ pkgs.libsForQt5.xdg-desktop-portal-kde ];
+  #xdg.portal.extraPortals = [ pkgs.libsForQt5.xdg-desktop-portal-kde ];
   xdg.portal.enable = true;
  
 
@@ -138,6 +147,7 @@ in
   dejavu_fonts
   ipafont
   ttf_bitstream_vera
+  font-awesome
   ];
 
   fonts.fontconfig.defaultFonts = {
@@ -159,9 +169,11 @@ in
 
 
   # Overlays
+
  # nixpkgs.overlays = [ (import <nixpkgs> {}).overrideAttrs (oldAttrs: {
  #   modules = oldAttrs.modules // [ /etc/nixos/modules/nordvpn.nix ];
  # }) ];
+
 
 
   # Programs
@@ -180,8 +192,8 @@ in
  
   # Cachix
     nix.settings = {
-      substituters = [ "https://ezkea.cachix.org" ];
-      trusted-public-keys = [ "ezkea.cachix.org-1:ioBmUbJTZIKsHmWWXPe1FSFbeVe+afhfgqgTSNd34eI=" ];
+      substituters = [ "https://ezkea.cachix.org" "https:'//nix-gaming.cachix.org" ];
+      trusted-public-keys = [ "ezkea.cachix.org-1:ioBmUbJTZIKsHmWWXPe1FSFbeVe+afhfgqgTSNd34eI=" "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4=" ];
     };
   
 
@@ -208,7 +220,7 @@ in
  #    enable = true;
  #    enableSSHSupport = true;
  #  };
-
+  
   # List services that you want to enable:
     services.blueman.enable = true;    
     services.flatpak.enable = true;
@@ -248,7 +260,7 @@ in
   # $ nix search wget
   # System Packages
   environment.systemPackages = with pkgs; [
-  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
+  vim 
   wget
   git
   i3
@@ -267,7 +279,7 @@ in
   discord
   flameshot
   libsForQt5.qt5ct
-  libsForQt5.kdialog
+  #libsForQt5.kdialog
   gnumake
   dunst
   libnotify
@@ -350,7 +362,7 @@ in
   shutter
   telegram-desktop
   nixos-option
-  osu-lazer
+  #osu-lazer
   krita
   elementary-planner
   element-desktop
@@ -359,6 +371,30 @@ in
   psi-plus
   teamspeak5_client
   signal-desktop
+  prismlauncher
+  jdk8
+  librewolf
+  heroic
+  speedtest-cli
+  spotify
+  libsForQt5.kde-cli-tools
+  unzip
+  #cinny-desktop
+  gparted
+  protonup-qt
+  libsForQt5.kdenlive
+  betterdiscordctl
+  autokey
+  icu
+  appimage-run
+  #osu-lazer-bin
+  nix-gaming.packages.${pkgs.hostPlatform.system}."osu-lazer-bin"
+  vscode
+  bottles
+  #electron-mail
+  #hydroxide - third-party open-source protonmail bridge
+  protonvpn-gui
+  protonvpn-cli
   ];
 
 }
