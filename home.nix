@@ -44,11 +44,13 @@
   services.redshift = {
   enable = true;
   duskTime = "21:00-22:00";
-  dawnTime = "3:00-3:30";
+  dawnTime = "4:00-4:30";
   temperature.day = 5500;
   temperature.night = 2000;
   settings.brightness.day = 0.77;
   settings.brightness.night = 0.55;
   tray = true;
   };
+
+
 }
