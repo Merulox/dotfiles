@@ -411,6 +411,7 @@ in
   libsForQt5.qtstyleplugin-kvantum
   copyq
   imagemagick
+  pls
   ];
 
 }
