@@ -412,6 +412,7 @@ in
   copyq
   imagemagick
   exa
+  qdirstat
   ];
 
 }
