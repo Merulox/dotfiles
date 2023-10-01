@@ -410,6 +410,7 @@ in
   libsForQt5.systemsettings
   libsForQt5.qtstyleplugin-kvantum
   copyq
+  imagemagick
   ];
 
 }
