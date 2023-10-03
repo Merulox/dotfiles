@@ -413,6 +413,7 @@ in
   imagemagick
   exa
   qdirstat
+  audacity
   ];
 
 }
