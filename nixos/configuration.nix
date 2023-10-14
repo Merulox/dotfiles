@@ -390,7 +390,7 @@ in
   icu
   appimage-run
   #osu-lazer-bin
-  nix-gaming.packages.${pkgs.hostPlatform.system}."osu-lazer-bin"
+  #nix-gaming.packages.${pkgs.hostPlatform.system}."osu-lazer-bin"
   vscode
   bottles
   #electron-mail
@@ -414,6 +414,7 @@ in
   exa
   qdirstat
   audacity
+  protonvpn-gui
   ];
 
 }
