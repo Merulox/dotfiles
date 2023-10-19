@@ -52,5 +52,11 @@
   tray = true;
   };
 
-
+  # Default applications
+  xdg.mimeApps.defaultApplications = {
+  enable = true;
+  defaultApplications = {
+   "inode/directory" = ["org.kde.dolphin.desktop"]; 
+   };
+  };
 }

@@ -64,6 +64,10 @@ in
       "steam-original"
       "steam-run"
     ];
+  # Boot kernel Params
+  #boot.kernelParams = [
+  #    reboot=acpi 
+  #];
   # Pulseaudio
   hardware.pulseaudio.enable = true;
   hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
@@ -121,6 +125,8 @@ in
   };
   # Secrets Provider
   services.passSecretService.enable = true;
+  # Gnome Keyring
+  services.gnome.gnome-keyring.enable = true;
   # Trusted Users
   nix.settings.trusted-users = [ "root" "merulox" ];
   # Default Shell
@@ -193,7 +199,7 @@ in
  
   # Cachix
     nix.settings = {
-      substituters = [ "https://ezkea.cachix.org" "https:'//nix-gaming.cachix.org" ];
+      substituters = [ "https://ezkea.cachix.org" "https://nix-gaming.cachix.org" ];
       trusted-public-keys = [ "ezkea.cachix.org-1:ioBmUbJTZIKsHmWWXPe1FSFbeVe+afhfgqgTSNd34eI=" "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4=" ];
     };
   
@@ -414,7 +420,10 @@ in
   exa
   qdirstat
   audacity
-  protonvpn-gui
+  gnome.libgnome-keyring
+  openvpn
+  networkmanager-openvpn
+  protonvpn-cli_2
   ];
 
 }
