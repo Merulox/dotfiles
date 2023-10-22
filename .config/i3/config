@@ -323,7 +323,7 @@ font pango:Terminus 14
 
 ################# assign applications to workspaces 
 
-  assign [class="element-desktop|element|Element"]  $ws13
+  assign [class="element-desktop|element|Element|cinny|Cinny"]  $ws13
   assign [class="thunderbird|Thunderbird"]   $ws11
   assign [class="musicbee.exe"]  $ws12
   assign [class="Psi+"] $ws14
