@@ -59,4 +59,10 @@
    "inode/directory" = ["org.kde.dolphin.desktop"]; 
    };
   };
+ 
+  # Path
+  home.sessionPath = [
+  "$HOME/.local/bin"
+  "/usr/local/bin/"
+  ];
 }

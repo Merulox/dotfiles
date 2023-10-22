@@ -138,6 +138,7 @@ in
   # Environment variables
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
+#  WEBKIT_DISABLE_COMPOSITING_MODE=1;  # For cinny to render (doesn't work for some reason)
 #  XDG_CURRENT_DESKTOP = "KDE";
 #  GTK_USE_PORTAL = "1";
 };
@@ -424,6 +425,9 @@ in
   openvpn
   networkmanager-openvpn
   protonvpn-cli_2
+  ani-cli
+  trackma-qt
+  adl
   ];
 
 }
