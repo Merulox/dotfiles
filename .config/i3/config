@@ -37,6 +37,7 @@ exec_always --no-startup-id /home/merulox1/.local/bin/kensington.sh
 exec_always alacritty -e xset r rate 300 25
 
 ################# autostart - execute applications at boot time
+exec_always --no-startup-id picom
 exec_always --no-startup-id sudo mount /dev/sda1 /mnt/data
 exec_always --no-startup-id feh --bg-fil ~/pictures/variety/wa.png 
  exec_always --no-startup-id autotiling
@@ -443,8 +444,8 @@ popup_during_fullscreen smart
 # delete or uncomment the following lines if you do not have it or do not
 # want it
 
-for_window [class="^.*"] border pixel 2
-gaps inner 8
+for_window [class="^.*"] border pixel 3
+ gaps inner 8
 gaps outer 2
 # smart_gaps on
 # smart_borders on
@@ -480,7 +481,7 @@ bar {
         inactive_workspace #333333 #222222 #888888
         urgent_workspace   #2f343a #900000 #ffffff
         binding_mode       #2f343a #900000 #ffffff 
-        }} 
+    }} 
    ##STOP THEMING BAR
 
     ##START THEMING WM
@@ -488,14 +489,15 @@ bar {
 
     # Window color settings
     # class                 border  backgr. text    indicator
-    client.focused          #6790EB #6790EB #e5e5e5 #6790EB
-  #  client.unfocused        #222222 #222222 #aaaaaa #222222
+    client.focused          #Cab83d #Cab83d #Cab83d #Cab83d  
+     client.unfocused        #222222 #222222 #aaaaaa #222222
   #  client.focused_inactive #222222 #222222 #a9a9a9 #222222
     client.placeholder      #222222 #222222 #aaaaaa #222222
     client.urgent           #d42121 #d42121 #f7f7f7 #d42121
 
     client.background       #242424
 
+  # #6790EB original blue focused border
 
 ################# Scratchpad
 

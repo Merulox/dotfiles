@@ -32,6 +32,10 @@ in
       experimental-features = nix-command flakes
     '';
   };
+  # Insecure packages
+  nixpkgs.config.permittedInsecurePackages = [
+   "electron-24.8.6"
+  ];
 
   # Opengl hardware
   hardware.opengl = {
@@ -427,7 +431,6 @@ in
   protonvpn-cli_2
   ani-cli
   trackma-qt
-  adl
   ];
 
 }

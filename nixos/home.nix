@@ -1,10 +1,21 @@
 { config, pkgs, lib, ... }:
+  let
 
+  in
 {
   home.username = "merulox";
   home.homeDirectory = "/home/merulox";
   home.stateVersion = "23.05";
-  home.packages = [ pkgs.atool pkgs.httpie ];
+  home.packages = [ pkgs.atool pkgs.httpie];
+  home.file.".emacs.d/init.el".text = ''
+      (load "default.el")
+  '';
+
+  # imports
+  imports = [
+    ./emacs.nix
+  ];
+
 
   # home-manager
   programs.home-manager.enable = true;
@@ -34,6 +45,32 @@
      font = { normal.family = "Terminus" ; size = 14; };
    };
   };
+  
+  # Picom
+  services.picom = {
+   enable = true;
+   activeOpacity = .98;
+   inactiveOpacity = .92;
+   shadow = true;
+   settings = {
+    blur =
+    { method = "gaussian";
+      size = 10;
+      deviation = 5.0;
+     };
+   };
+   fadeExclude = [
+  "window_type *= 'menu'"
+  "name ~= 'vivaldi$'"
+  ];
+   
+  };
+
+  # Emacs
+  programs.emacs = {
+    enable = true;
+    
+  };
 
   # Services
   services.flameshot.enable = true;
@@ -43,7 +80,7 @@
   };
   services.redshift = {
   enable = true;
-  duskTime = "21:00-22:00";
+  duskTime = "19:30-19:40";
   dawnTime = "4:00-4:30";
   temperature.day = 5500;
   temperature.night = 2000;
