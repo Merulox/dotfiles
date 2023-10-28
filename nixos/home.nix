@@ -7,9 +7,6 @@
   home.homeDirectory = "/home/merulox";
   home.stateVersion = "23.05";
   home.packages = [ pkgs.atool pkgs.httpie];
-  home.file.".emacs.d/init.el".text = ''
-      (load "default.el")
-  '';
 
   # imports
   imports = [
@@ -64,12 +61,6 @@
   "name ~= 'vivaldi$'"
   ];
    
-  };
-
-  # Emacs
-  programs.emacs = {
-    enable = true;
-    
   };
 
   # Services
