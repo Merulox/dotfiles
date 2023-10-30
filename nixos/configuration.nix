@@ -59,7 +59,15 @@ in
 
     # Optionally, you may need to select the appropriate driver version for your specific GPU.
     package = config.boot.kernelPackages.nvidiaPackages.stable;
+
   };
+
+  # Reboot / Shutdown
+  boot.kernelParams = [
+    "reboot=acpi;"
+
+  ];
+
   # Nvidia drivers
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) [
@@ -68,10 +76,7 @@ in
       "steam-original"
       "steam-run"
     ];
-  # Boot kernel Params
-  #boot.kernelParams = [
-  #    reboot=acpi 
-  #];
+
   # Pulseaudio
   hardware.pulseaudio.enable = true;
   hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
@@ -431,6 +436,7 @@ in
   protonvpn-cli_2
   ani-cli
   trackma-qt
+  hydrus
   ];
 
 }
