@@ -44,7 +44,7 @@
   programs.alacritty = {
   enable = true;
   settings = {
-     font = { normal.family = "Terminus" ; size = 14; };
+     font = { normal.family = "terminus" ; size = 14; };
    };
   };
   

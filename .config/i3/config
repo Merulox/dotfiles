@@ -80,7 +80,7 @@ bindsym $mod+Return exec --no-startup-id alacritty;focus
 bindsym $mod+x exec --no-startup-id xfce4-terminal --drop-down; focus
 bindsym $mod+Shift+Return exec --no-startup-id dolphin
 bindsym Print exec --no-startup-id flameshot gui
-bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'NotoMonoRegular:bold:pixelsize=14'
+bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'Terminus:bold:pixelsize=18'
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
 bindsym $mod+w exec --no-startup-id ~/.local/bin/dmenu-win
 #bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
@@ -455,7 +455,7 @@ gaps outer 2
 bar {
     height 28
     workspace_buttons yes
-	font pango:Terminus 14
+	font pango:terminus 14
 	# position top
     strip_workspace_numbers yes
     position bottom

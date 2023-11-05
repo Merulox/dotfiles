@@ -147,10 +147,9 @@ in
   # Environment variables
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
-#  WEBKIT_DISABLE_COMPOSITING_MODE=1;  # For cinny to render (doesn't work for some reason)
-#   XDG_CURRENT_DESKTOP = "KDE";
-#   GTK_USE_PORTAL = "1";
-};
+  XDG_CURRENT_DESKTOP = "KDE";
+  GTK_USE_PORTAL = "1";
+  };
 
   # Desktop integration portals
    xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal pkgs.libsForQt5.xdg-desktop-portal-kde ];
@@ -165,23 +164,27 @@ in
   ipafont
   ttf_bitstream_vera
   font-awesome
+  monocraft
   ];
 
   fonts.fontconfig.defaultFonts = {
     monospace = [
+      "terminus"
       "DejaVu Sans Mono"
       "IPAGothic"
     ];
     sansSerif = [
+      "terminus"
       "DejaVu Sans"
       "IPAPGothic"
     ];
     serif = [
+      "terminus"
       "DejaVu Serif"
       "IPAPMincho"
     ];
   };
-  #fonts.fontconfig.antialias = false; 
+  #  fonts.fontconfig.antialias = false; 
  
 
 
