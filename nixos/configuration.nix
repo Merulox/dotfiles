@@ -148,12 +148,12 @@ in
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
 #  WEBKIT_DISABLE_COMPOSITING_MODE=1;  # For cinny to render (doesn't work for some reason)
-#  XDG_CURRENT_DESKTOP = "KDE";
-#  GTK_USE_PORTAL = "1";
+#   XDG_CURRENT_DESKTOP = "KDE";
+#   GTK_USE_PORTAL = "1";
 };
 
   # Desktop integration portals
-#  xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal pkgs.libsForQt5.xdg-desktop-portal-kde ];
+   xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal pkgs.libsForQt5.xdg-desktop-portal-kde ];
    xdg.portal.enable = true;
  
 
@@ -338,6 +338,7 @@ in
   libsForQt5.dolphin
   libsForQt5.kio-extras
   libsForQt5.ffmpegthumbs
+  libsForQt5.kdegraphics-thumbnailers
   blueman
   rxvt-unicode-unwrapped-emoji
   feh
@@ -392,7 +393,7 @@ in
   prismlauncher
   jdk8
   librewolf
-  heroic
+  heroic-unwrapped
   speedtest-cli
   spotify
   libsForQt5.kde-cli-tools
@@ -437,6 +438,8 @@ in
   ani-cli
   trackma-qt
   hydrus
+  ffmpeg
+  libsForQt5.qt5.qtimageformats
   ];
 
 }

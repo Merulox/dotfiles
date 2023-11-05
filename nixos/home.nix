@@ -26,6 +26,8 @@
    shellInit = lib.mkAfter "set fish_prompt_pwd_dir_length 0";
    plugins = [
       { name = "fzf-fish"; src = pkgs.fishPlugins.fzf.src; }
+      { name = "done"; src= pkgs.fishPlugins.done; }  
+        
    ];
   };
 
@@ -34,6 +36,9 @@
 
   # zoxide
   programs.zoxide.enable = true;
+
+  # navi
+  programs.navi.enable = true;
 
   # Alacritty
   programs.alacritty = {
