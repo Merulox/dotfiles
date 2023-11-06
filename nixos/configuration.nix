@@ -88,11 +88,11 @@ in
   boot.loader.efi.canTouchEfiVariables = true;
 
   # Mount drive
-   #fileSystems."/mnt/data" =
-    #{ device = "/dev/sda1";
-    #  fsType = "ntfs-3g"; 
-    #  options = [ "rw" "uid=C636A0CA36A0BCB5"];
-    #};
+   fileSystems."/mnt/data" =
+    { device = "/dev/sda1";
+      fsType = "ntfs-3g"; 
+      options = [ "rw" "uid=1000"];
+    };
   boot.supportedFilesystems = [ "ntfs" ];
 
   # Opentabletdriver
@@ -131,6 +131,7 @@ in
     description = "merulox";
     extraGroups = [ "networkmanager" "wheel" "plugdev" ];
     packages = with pkgs; [];
+    uid = 1000;
   };
   # Secrets Provider
   services.passSecretService.enable = true;
@@ -147,13 +148,13 @@ in
   # Environment variables
   environment.sessionVariables = rec {
   QT_QPA_PLATFORMTHEME = "qt5ct";
-  XDG_CURRENT_DESKTOP = "KDE";
-  GTK_USE_PORTAL = "1";
+  #XDG_CURRENT_DESKTOP = "KDE";
+  #GTK_USE_PORTAL = "1";
   };
 
   # Desktop integration portals
-   xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal pkgs.libsForQt5.xdg-desktop-portal-kde ];
-   xdg.portal.enable = true;
+   #xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal pkgs.libsForQt5.xdg-desktop-portal-kde ];
+    xdg.portal.enable = true;
  
 
   # Fonts
@@ -186,13 +187,6 @@ in
   };
   #  fonts.fontconfig.antialias = false; 
  
-
-
-  # Overlays
-
- # nixpkgs.overlays = [ (import <nixpkgs> {}).overrideAttrs (oldAttrs: {
- #   modules = oldAttrs.modules // [ /etc/nixos/modules/nordvpn.nix ];
- # }) ];
 
 
 
@@ -255,16 +249,18 @@ in
   services.avahi.enable = true;
   services.avahi.nssmdns = true;
   # for a WiFi printer
-  services.avahi.openFirewall = true;
+  # services.avahi.openFirewall = true;
  
   # Enable the OpenSSH daemon.
   # services.openssh.enable = true;
 
   # Open ports in the firewall.
-    networking.firewall.allowedTCPPorts = [8080];
+    networking.firewall.enable = true;
+    networking.firewall.allowedTCPPorts = [8080 2234];
     networking.firewall.allowedUDPPorts = [8080];
   # Or disable the firewall altogether.
-  #  networking.firewall.enable = false;
+  #   networking.firewall.enable = false;
+
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
@@ -437,12 +433,14 @@ in
   gnome.libgnome-keyring
   openvpn
   networkmanager-openvpn
-  protonvpn-cli_2
+  #protonvpn-cli_2
   ani-cli
   trackma-qt
   hydrus
   ffmpeg
   libsForQt5.qt5.qtimageformats
+  nicotine-plus
+  openvpn
   ];
 
 }

@@ -42,13 +42,12 @@ exec_always --no-startup-id sudo mount /dev/sda1 /mnt/data
 exec_always --no-startup-id feh --bg-fil ~/pictures/variety/wa.png 
  exec_always --no-startup-id autotiling
 exec --no-startup-id vivaldi
-   for_window [class="Vivaldi-stable"] focus
+ for_window [class="Vivaldi-stable"] focus
 exec --no-startup-id /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
-# exec --no-startup-id redshift
-#exec --no-startup-id element-desktop
+#exec --no-startup-id redshift
 exec --no-startup-id nm-tray
 exec_always --no-startup-id numlockx on
-# exec --no-startup-id variety
+#exec --no-startup-id variety
 #exec --no-startup-id trackma-qt
 exec --no-startup-id xfce4-power-manager &
 exec --no-startup-id fcitx
@@ -69,7 +68,7 @@ exec --no-startup-id spotify
 #exec --no-startup-id WINEPREFIX="/home/merulox1/Music/.wine32MBee" wine "/home/merulox1/Music/.wine32MBee/drive_c/users/merulox1/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk" 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 exec --no-startup-id alacritty -e WEBKIT_DISABLE_COMPOSITING_MODE=1 in.cinny.Cinny
-
+#exec --no-startup-id protonvpn
 ################# applications keyboard shortcuts  
 
 bindsym $mod+mod1+ctrl+w exec --no-startup-id artha
@@ -337,6 +336,7 @@ font pango:Terminus 14
   assign [class="Clementine|clementine|cider|Cider"] $ws12
   assign [class="Discord|discord"] $ws5
   assign [class="fluent-reader"] $ws6
+  assign [class=".protonvpn-wrapped"] $ws15
 
 ################# floating or tiled rules         
 #Personal:
