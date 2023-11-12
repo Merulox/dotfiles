@@ -50,7 +50,7 @@ exec_always --no-startup-id numlockx on
 #exec --no-startup-id variety
 #exec --no-startup-id trackma-qt
 exec --no-startup-id xfce4-power-manager &
-exec --no-startup-id fcitx
+exec --no-startup-id fcitx5
 exec --no-startup-id psi-plus
  exec --no-startup-id thunderbird
 #exec --no-startup-id pycharm
@@ -65,7 +65,7 @@ exec --no-startup-id Cider
 exec --no-startup-id element-desktop
 exec --no-startup-id fluent-reader
 exec --no-startup-id spotify
-#exec --no-startup-id WINEPREFIX="/home/merulox1/Music/.wine32MBee" wine "/home/merulox1/Music/.wine32MBee/drive_c/users/merulox1/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk" 
+exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 exec --no-startup-id alacritty -e WEBKIT_DISABLE_COMPOSITING_MODE=1 in.cinny.Cinny
 #exec --no-startup-id protonvpn
@@ -87,7 +87,7 @@ bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
 bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
 bindsym $mod+c exec --no-startup-id clipmenu
-bindsym mod1+ctrl+space exec xkb-switch -n
+#bindsym mod1+ctrl+space exec xkb-switch -n
 bindsym mod1+ctrl+0x27 exec rofimoji
 bindsym $mod+shift+w exec warpd --hint2
 
@@ -437,6 +437,13 @@ new_float normal
 # Popups during fullscreen mode
 popup_during_fullscreen smart
 
+################ window title
+
+for_window [all] title_format "%title"
+for_window [all] title_window_icon on
+for_window [all] title_window_icon padding 10px
+for_window [all] title_window_icon border pixel 10px
+
 ################# i3 gaps next                     
 
 # Settings for I3 next gap git
@@ -444,7 +451,7 @@ popup_during_fullscreen smart
 # delete or uncomment the following lines if you do not have it or do not
 # want it
 
-for_window [class="^.*"] border pixel 3
+for_window [class="^.*"] border pixel 2
  gaps inner 8
 gaps outer 2
 # smart_gaps on
@@ -488,10 +495,10 @@ bar {
     # Theme name : ArcoLinux Default
 
     # Window color settings
-    # class                 border  backgr. text    indicator
-    client.focused          #Cab83d #Cab83d #Cab83d #Cab83d  
-     client.unfocused        #222222 #222222 #aaaaaa #222222
-  #  client.focused_inactive #222222 #222222 #a9a9a9 #222222
+    # class                 border  backgr. text    indica. child_border
+    client.focused          #Cab83d #383434 #Cab83d #Cab83d #Cab83d
+    client.unfocused        #222222 #222222 #aaaaaa #222222
+    client.focused_inactive #ffffff #222222 #a9a9a9 #222222
     client.placeholder      #222222 #222222 #aaaaaa #222222
     client.urgent           #d42121 #d42121 #f7f7f7 #d42121
 
@@ -534,3 +541,6 @@ hide_edge_borders smart
 
 #no gaps when 1 window
 smart_gaps on
+
+
+

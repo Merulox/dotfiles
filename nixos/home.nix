@@ -1,6 +1,5 @@
 { config, pkgs, lib, ... }:
   let
-
   in
 {
   home.username = "merulox";
@@ -40,11 +39,58 @@
   # navi
   programs.navi.enable = true;
 
+  # ncmpcpp
+  programs.ncmpcpp.enable = true;
+  programs.ncmpcpp.settings = {ncmpcpp_directory = "/etc/nixos/ncmpcpp";};
+  
+  # mpd
+  services.mpd = {
+  enable = true;
+  musicDirectory = "/mnt/data/Audio/Music";
+  dbFile = "~/mpd/tag_cache";
+  extraConfig = ''
+   audio_output {
+     type "pulse"
+     name "mpd"
+   }
+  '';
+  };
+
   # Alacritty
   programs.alacritty = {
   enable = true;
   settings = {
      font = { normal.family = "terminus" ; size = 14; };
+     #colors = with config.colorScheme.colors; {
+     # bright = {
+     #   black = "0x${base00}";
+     #   blue = "0x${base0D}";
+     #   cyan = "0x${base0C}";
+     #   green = "0x${base0B}";
+     #   magenta = "0x${base0E}";
+     #   red = "0x${base08}";
+     #   white = "0x${base06}";
+     #   yellow = "0x${base09}";
+     # };
+     # cursor = {
+     #   cursor = "0x${base06}";
+     #   text = "0x${base06}";
+     # };
+     # normal = {
+     #   black = "0x${base00}";
+     #   blue = "0x${base0D}";
+     #   cyan = "0x${base0C}";
+     #   green = "0x${base0B}";
+     #   magenta = "0x${base0E}";
+     #   red = "0x${base08}";
+     #   white = "0x${base06}";
+     #   yellow = "0x${base0A}";
+     # };
+     # primary = {
+     #   background = "0x${base00}";
+     #   foreground = "0x${base06}";
+     # };
+   # };
    };
   };
   

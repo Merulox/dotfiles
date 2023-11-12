@@ -5,7 +5,7 @@
 let
   aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
   nix-gaming = import (builtins.fetchTarball "https://github.com/fufexan/nix-gaming/archive/master.tar.gz");
-
+ 
 in
 {
 
@@ -18,6 +18,7 @@ in
       ./unstable.nix
       aagl-gtk-on-nix.module
     ];
+
   # Home-manager
   home-manager = {
     useGlobalPkgs = true;
@@ -26,12 +27,8 @@ in
   };
 
   # Flakes
-    nix = {
-    package = pkgs.nixFlakes;
-    extraOptions = ''
-      experimental-features = nix-command flakes
-    '';
-  };
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
   # Insecure packages
   nixpkgs.config.permittedInsecurePackages = [
    "electron-24.8.6"
@@ -78,8 +75,18 @@ in
     ];
 
   # Pulseaudio
-  hardware.pulseaudio.enable = true;
-  hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
+  #hardware.pulseaudio.enable = true;
+  #hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
+  
+  # PipeWire
+  security.rtkit.enable = true;
+  services.pipewire = {
+  enable = true;
+  alsa.enable = true;
+  alsa.support32Bit = true;
+  pulse.enable = true;
+  };
+  # bluetooth 
   hardware.bluetooth.enable = true;
   # zsa
   hardware.keyboard.zsa.enable = true;
@@ -114,11 +121,15 @@ in
 
   # Select internationalisation properties.
   i18n.defaultLocale = "en_CA.UTF-8";
+  #i18n.supportedLocales = [
+  #  "en_US.UTF-8/UTF-8"
+  #  "ja_JP.UTF-8/UTF-8"
+  #];
 
   # Configure keymap in X11
   services.xserver = {
     enable = true;
-    layout = "us,fr";
+    layout = "us";
     xkbVariant = "";
     displayManager.sddm.enable = true;
     windowManager.i3.enable = true; 
@@ -163,6 +174,7 @@ in
   carlito
   dejavu_fonts
   ipafont
+  kochi-substitute
   ttf_bitstream_vera
   font-awesome
   monocraft
@@ -186,7 +198,6 @@ in
     ];
   };
   #  fonts.fontconfig.antialias = false; 
- 
 
 
 
@@ -202,7 +213,7 @@ in
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "vim ~/.config/i3/config"; zshrc = "vim ~/.zshrc"; aliases = "vim ~/.aliases"; bconnect="~/.local/bin/bconnect"; dconnect = "~/.local/bin/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo vim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "sudo vim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push";}; 
+    update = "sudo nixos-rebuild switch"; i3config = "vim ~/.config/i3/config"; zshrc = "vim ~/.zshrc"; aliases = "vim ~/.aliases"; bconnect="~/.local/bin/bconnect"; dconnect = "~/.local/bin/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo vim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "sudo vim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp";}; 
  
   # Cachix
     nix.settings = {
@@ -211,20 +222,39 @@ in
     };
   
 
-  # Anime Game Launcher
-  programs.anime-game-launcher.enable = true;
+  # mpd
+  services.mpd = {
+  enable = true;
+  musicDirectory = "/mnt/data/Audio/Music";
+  user = "merulox";
+  extraConfig = ''
+    audio_output {
+      type "pipewire"
+      name "mpd"
+     }
+   '';
+  };
+  systemd.services.mpd.environment = {
+    XDG_RUNTIME_DIR = "/run/user/1000"; 
+  };
   
   # Honkers Railway Launcher
   programs.honkers-railway-launcher.enable = true;
 
-  # Flakes
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
-
-  # Japanese
-  console.font = "Lat2-Terminus16";
+  # japanese
   i18n.inputMethod = {
-  enabled = "ibus";
-  ibus.engines = with pkgs.ibus-engines; [mozc];
+  enabled = "fcitx5";
+  fcitx5.addons = with pkgs; [
+	fcitx5-mozc
+      ];
+  };
+  # To configure fcitx in the graphical interface, create 2 groups. In the first one, have en+fr where you alternate with a keybinding. In the second, have jap. You will alternate between groups to use jap.
+  
+  environment.sessionVariables = {
+    XMODIFIERS = "@im=fcitx";
+    QT_IM_MODULE = "fcitx";
+    GTK_IM_MODULE = "fcitx";
+    SDL_IM_MODULE = "fcitx";
   };
 
   # Some programs need SUID wrappers, can be configured further or are
@@ -282,6 +312,7 @@ in
   i3
   i3status
   i3blocks
+  xkb-switch
   vivaldi
   firefox
   alacritty
@@ -357,7 +388,6 @@ in
   curl 
   wireguard-tools
   openresolv
-  xkb-switch-i3
   xorg.xkill
   obs-studio
   anki-bin
@@ -433,7 +463,7 @@ in
   gnome.libgnome-keyring
   openvpn
   networkmanager-openvpn
-  #protonvpn-cli_2
+  protonvpn-cli_2
   ani-cli
   trackma-qt
   hydrus
@@ -441,6 +471,8 @@ in
   libsForQt5.qt5.qtimageformats
   nicotine-plus
   openvpn
+  freetube
+  distrobox  
   ];
 
 }
