@@ -369,6 +369,7 @@ in
   libsForQt5.kio-extras
   libsForQt5.ffmpegthumbs
   libsForQt5.kdegraphics-thumbnailers
+  libsForQt5.qt5.qtimageformats
   blueman
   rxvt-unicode-unwrapped-emoji
   feh
@@ -468,11 +469,11 @@ in
   trackma-qt
   hydrus
   ffmpeg
-  libsForQt5.qt5.qtimageformats
   nicotine-plus
   openvpn
-  freetube
   distrobox  
+  nix-prefetch-git
+  brave
   ];
 
 }
