@@ -5,7 +5,7 @@
 let
   aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
   nix-gaming = import (builtins.fetchTarball "https://github.com/fufexan/nix-gaming/archive/master.tar.gz");
- 
+  
 in
 {
 
@@ -61,7 +61,7 @@ in
 
   # Reboot / Shutdown
   boot.kernelParams = [
-    "reboot=acpi;"
+    "reboot=bios;"
 
   ];
 
@@ -133,6 +133,9 @@ in
     xkbVariant = "";
     displayManager.sddm.enable = true;
     windowManager.i3.enable = true; 
+    windowManager.xmonad.enable = true;
+    windowManager.xmonad.enableContribAndExtras = true;
+    services.xserver.windowManager.xmonad.config = builtins.readFile ~/.config/xmonad/xmonad.hs;
     videoDrivers = ["nvidia"];
  };
 
@@ -334,6 +337,7 @@ in
   playerctl
   killall
   mpv
+  mpvScripts.mpris
   vlc
   coreutils-full
   toybox
@@ -474,6 +478,9 @@ in
   distrobox  
   nix-prefetch-git
   brave
+  qutebrowser
+  mkvtoolnix
+  adl
   ];
 
 }
