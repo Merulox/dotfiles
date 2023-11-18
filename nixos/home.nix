@@ -25,8 +25,24 @@
    shellInit = lib.mkAfter "set fish_prompt_pwd_dir_length 0";
    plugins = [
       { name = "fzf-fish"; src = pkgs.fishPlugins.fzf.src; }
-      { name = "done"; src= pkgs.fishPlugins.done; }  
+      { name = "done"; src = pkgs.fishPlugins.done.src; }
+      { name = "pure"; src = pkgs.fishPlugins.pure.src; }
+     #{ name = "tide"; src = pkgs.fishPlugins.tide.src; }
+     #{ name = "hydro"; src = pkgs.fishPlugins.hydro.src; }
         
+   ];
+  };
+
+  # vim
+  programs.neovim = {
+  enable = true;
+  plugins = with pkgs.vimPlugins; [
+  vim-nix
+  yankring
+  nvim-lastplace
+   { plugin = vim-startify;
+    config = "let g:startify_change_to_vcs_root = 0";
+    }
    ];
   };
 
@@ -132,12 +148,12 @@
   };
 
   # Default applications
-  xdg.mimeApps.defaultApplications = {
-  enable = true;
-  defaultApplications = {
-   "inode/directory" = ["org.kde.dolphin.desktop"]; 
-   };
-  };
+ # xdg.mimeApps = {
+ # enable = true;
+ # defaultApplications = {
+ #  "inode/directory" = ["org.kde.dolphin.desktop"]; 
+ #  };
+ # };
  
   # Path
   home.sessionPath = [

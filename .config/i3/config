@@ -68,6 +68,7 @@ exec --no-startup-id spotify
 exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 exec --no-startup-id alacritty -e WEBKIT_DISABLE_COMPOSITING_MODE=1 in.cinny.Cinny
+exec --no-startup-id calibre
 #exec --no-startup-id protonvpn
 ################# applications keyboard shortcuts  
 
@@ -81,7 +82,7 @@ bindsym $mod+Shift+Return exec --no-startup-id dolphin
 bindsym Print exec --no-startup-id flameshot gui
 bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'Terminus:bold:pixelsize=18'
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
-bindsym $mod+w exec --no-startup-id ~/.local/bin/dmenu-win
+bindsym $mod+w exec --no-startup-id ~/scripts/dmenu-win
 #bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
 bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer 
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10

@@ -135,7 +135,7 @@ in
     windowManager.i3.enable = true; 
     windowManager.xmonad.enable = true;
     windowManager.xmonad.enableContribAndExtras = true;
-    services.xserver.windowManager.xmonad.config = builtins.readFile ~/.config/xmonad/xmonad.hs;
+    windowManager.xmonad.config = builtins.readFile /home/merulox/.config/xmonad/xmonad.hs;
     videoDrivers = ["nvidia"];
  };
 
@@ -216,7 +216,7 @@ in
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "vim ~/.config/i3/config"; zshrc = "vim ~/.zshrc"; aliases = "vim ~/.aliases"; bconnect="~/.local/bin/bconnect"; dconnect = "~/.local/bin/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo vim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "sudo vim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp";}; 
+    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "sudo nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim";}; 
  
   # Cachix
     nix.settings = {
@@ -289,8 +289,8 @@ in
 
   # Open ports in the firewall.
     networking.firewall.enable = true;
-    networking.firewall.allowedTCPPorts = [8080 2234];
-    networking.firewall.allowedUDPPorts = [8080];
+    networking.firewall.allowedTCPPorts = [ 8080 ];
+    networking.firewall.allowedUDPPorts = [ 8080 ];
   # Or disable the firewall altogether.
   #   networking.firewall.enable = false;
 
@@ -309,7 +309,7 @@ in
   # $ nix search wget
   # System Packages
   environment.systemPackages = with pkgs; [
-  vim 
+  neovim 
   wget
   git
   i3
