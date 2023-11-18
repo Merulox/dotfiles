@@ -33,13 +33,16 @@
    ];
   };
 
-  # vim
+  # neovim
   programs.neovim = {
   enable = true;
   plugins = with pkgs.vimPlugins; [
   vim-nix
   yankring
-  nvim-lastplace
+  vim-lastplace
+  vim-cool
+  indentLine
+  vim-numbertoggle
    { plugin = vim-startify;
     config = "let g:startify_change_to_vcs_root = 0";
     }
