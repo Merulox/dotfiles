@@ -481,6 +481,8 @@ in
   qutebrowser
   mkvtoolnix
   adl
+  moreutils
+  mpd-mpris
   ];
 
 }
