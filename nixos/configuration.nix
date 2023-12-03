@@ -5,7 +5,7 @@
 let
   aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
   nix-gaming = import (builtins.fetchTarball "https://github.com/fufexan/nix-gaming/archive/master.tar.gz");
-  
+
 in
 {
 
@@ -17,6 +17,7 @@ in
       <home-manager/nixos>
       ./unstable.nix
       aagl-gtk-on-nix.module
+      nix-gaming.nixosModules.pipewireLowLatency
     ];
 
   # Home-manager
@@ -61,7 +62,7 @@ in
 
   # Reboot / Shutdown
   boot.kernelParams = [
-    "reboot=bios;"
+    "reboot=acpi;"
 
   ];
 
@@ -74,6 +75,20 @@ in
       "steam-run"
     ];
 
+  # invidious
+  services.invidious = { 
+    enable = true;
+    nginx.enable = false;
+    port = 12345;
+
+    # if you want to disable recommended videos
+    settings = {
+      default_user_preferences = {
+        "related_videos" = false;
+      };
+    };
+  };
+
   # Pulseaudio
   #hardware.pulseaudio.enable = true;
   #hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
@@ -81,11 +96,13 @@ in
   # PipeWire
   security.rtkit.enable = true;
   services.pipewire = {
-  enable = true;
-  alsa.enable = true;
-  alsa.support32Bit = true;
-  pulse.enable = true;
+   enable = true;
+   alsa.enable = true;
+   alsa.support32Bit = true;
+   pulse.enable = true;
+   lowLatency.enable = true;
   };
+
   # bluetooth 
   hardware.bluetooth.enable = true;
   # zsa
@@ -93,7 +110,9 @@ in
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
-
+  # podman
+  virtualisation.podman.enable = true;
+  #virtualisation.podman.rootless.enable = true;
   # Mount drive
    fileSystems."/mnt/data" =
     { device = "/dev/sda1";
@@ -143,7 +162,7 @@ in
   users.users.merulox = {
     isNormalUser = true;
     description = "merulox";
-    extraGroups = [ "networkmanager" "wheel" "plugdev" ];
+    extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" ];
     packages = with pkgs; [];
     uid = 1000;
   };
@@ -216,7 +235,7 @@ in
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "sudo nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "sudo nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim";}; 
+    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim";}; 
  
   # Cachix
     nix.settings = {
@@ -290,7 +309,9 @@ in
   # Open ports in the firewall.
     networking.firewall.enable = true;
     networking.firewall.allowedTCPPorts = [ 8080 ];
+    networking.firewall.allowedTCPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
     networking.firewall.allowedUDPPorts = [ 8080 ];
+    networking.firewall.allowedUDPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
   # Or disable the firewall altogether.
   #   networking.firewall.enable = false;
 
@@ -471,7 +492,6 @@ in
   protonvpn-cli_2
   ani-cli
   trackma-qt
-  hydrus
   ffmpeg
   nicotine-plus
   openvpn
@@ -483,6 +503,13 @@ in
   adl
   moreutils
   mpd-mpris
+  vencord
+  webcord-vencord
+  viewnior
+  libsForQt5.kdeconnect-kde
+  freetube
+  xclip
+  memento
+  #glibc
   ];
-
 }

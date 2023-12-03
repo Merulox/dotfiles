@@ -6,6 +6,7 @@ in {
   environment.systemPackages = with pkgs; [
      unstable.calibre
      unstable.rclone
-     unstable.floorp
+     #unstable.floorp
+     unstable.quodlibet
   ];
 }

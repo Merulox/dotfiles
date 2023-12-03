@@ -36,6 +36,12 @@
   # neovim
   programs.neovim = {
   enable = true;
+  defaultEditor = true;
+  vimAlias = true;
+  extraConfig = ''
+    set relativenumber 
+    set number
+  '';
   plugins = with pkgs.vimPlugins; [
   vim-nix
   yankring
@@ -43,11 +49,24 @@
   vim-cool
   indentLine
   vim-numbertoggle
+  SudoEdit-vim
    { plugin = vim-startify;
     config = "let g:startify_change_to_vcs_root = 0";
     }
    ];
   };
+
+
+#  # Desktop Entries
+#  xdg.desktopEntries = {
+#    neovim = {
+#      name = "nvim";
+#      genericName = "neovim";
+#      exec = "nvim";
+#      terminal = true;
+#      mimeType = [ "EDITOR" "SUDO_EDITOR" "VISUAL" ];
+#    };
+#  };
 
   # fzf
   programs.fzf.enable = true;
