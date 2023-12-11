@@ -76,18 +76,18 @@ in
     ];
 
   # invidious
-  services.invidious = { 
-    enable = true;
-    nginx.enable = false;
-    port = 12345;
+ # services.invidious = { 
+ #   enable = true;
+ #   nginx.enable = false;
+ #   port = 12345;
 
-    # if you want to disable recommended videos
-    settings = {
-      default_user_preferences = {
-        "related_videos" = false;
-      };
-    };
-  };
+ #   # if you want to disable recommended videos
+ #   settings = {
+ #     default_user_preferences = {
+ #       "related_videos" = false;
+ #     };
+ #   };
+ # };
 
   # Pulseaudio
   #hardware.pulseaudio.enable = true;
@@ -111,7 +111,7 @@ in
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
   # podman
-  virtualisation.podman.enable = true;
+  virtualisation.podman.enable = true; # for distrobox
   #virtualisation.podman.rootless.enable = true;
   # Mount drive
    fileSystems."/mnt/data" =
@@ -430,7 +430,7 @@ in
   warpd
   zsa-udev-rules
   qbittorrent
-  katawa-shoujo
+  #katawa-shoujo
   opentabletdriver
   mullvad-vpn
   shutter
@@ -448,7 +448,6 @@ in
   prismlauncher
   jdk8
   librewolf
-  heroic-unwrapped
   speedtest-cli
   spotify
   libsForQt5.kde-cli-tools
@@ -511,5 +510,9 @@ in
   xclip
   memento
   #glibc
+  python311Packages.mpv
+  koreader
+  cabextract
+  uget
   ];
 }

@@ -37,6 +37,8 @@ exec_always --no-startup-id /home/merulox1/.local/bin/kensington.sh
 exec_always alacritty -e xset r rate 300 25
 
 ################# autostart - execute applications at boot time
+#exec_always --no-startup-id ~/.config/i3/scripts/protonvpn
+exec --no-startup-id alacritty -e sudo protonvpn c --p2p
 exec_always --no-startup-id picom
 exec_always --no-startup-id sudo mount /dev/sda1 /mnt/data
 exec_always --no-startup-id feh --bg-fil ~/pictures/variety/wa.png 
@@ -60,7 +62,8 @@ exec --no-startup-id bitwarden
 exec --no-startup-id clementine
 exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
-exec --no-startup-id discord
+#exec --no-startup-id discord
+exec --no-startup-id webcord
 exec --no-startup-id Cider
 exec --no-startup-id element-desktop
 exec --no-startup-id fluent-reader
@@ -69,6 +72,7 @@ exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merul
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 exec --no-startup-id alacritty -e WEBKIT_DISABLE_COMPOSITING_MODE=1 in.cinny.Cinny
 exec --no-startup-id calibre
+exec --no-startup-id org.nicotine_plus.Nicotine
 #exec --no-startup-id protonvpn
 ################# applications keyboard shortcuts  
 
@@ -335,9 +339,9 @@ font pango:Terminus 14
   assign [class="vivaldi|Vivaldi"] $ws1
   assign [class="Rednotebook|rednotebook"] $ws7
   assign [class="Clementine|clementine|cider|Cider"] $ws12
-  assign [class="Discord|discord"] $ws5
+  assign [class="Discord|discord|webcord"] $ws5
   assign [class="fluent-reader"] $ws6
-  assign [class=".protonvpn-wrapped"] $ws15
+  assign [class=".protonvpn-wrapped|org.nicotine_plus.Nicotine"] $ws15
 
 ################# floating or tiled rules         
 #Personal:

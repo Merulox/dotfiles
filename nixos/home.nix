@@ -149,6 +149,10 @@
   "window_type *= 'menu'"
   "name ~= 'vivaldi$'"
   ];
+  # opacityRules = [
+  #   "100:WM_CLASS = 'mpv'"
+  #   "100:WM_CLASS = 'betterlockscreen'"
+  # ];
    
   };
 
