@@ -514,5 +514,6 @@ in
   koreader
   cabextract
   uget
+  haskellPackages.xmobar
   ];
 }
