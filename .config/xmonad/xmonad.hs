@@ -10,6 +10,7 @@
 import XMonad
 import Data.Monoid
 import System.Exit
+import XMonad.Util.SpawnOnce
 
 import qualified XMonad.StackSet as W
 import qualified Data.Map        as M
@@ -63,22 +64,22 @@ myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
     [ ((modm,               xK_Return), spawn $ XMonad.terminal conf)
 
     -- launch file manager
-    [ ((modm .|. ctrlShift, xK_Return), spawn $ XMonad.terminal conf)
+    , ((modm .|. controlMask,  xK_Return), spawn $ XMonad.terminal conf)
 
     -- launch dmenu
     , ((modm,               xK_space ), spawn "dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'Terminus:bold:pixelsize=18")
 
-    , ((modm .|. ctrlMask   xK_Return), spawn "j4-dmenu-desktop")
+    , ((modm .|. controlMask,xK_space), spawn "j4-dmenu-desktop")
 
 
     -- close focused window
     , ((modm .|. shiftMask, xK_c     ), kill)
 
      -- Rotate through the available layout algorithms
-    , ((modm,               xK_space ), sendMessage NextLayout)
+    , ((modm .|. shiftMask, xK_space), sendMessage NextLayout)
 
     --  Reset the layouts on the current workspace to default
-    , ((modm .|. shiftMask, xK_space ), setLayout $ XMonad.layoutHook conf)
+    --, ((modm .|. shiftMask, xK_space ), setLayout $ XMonad.layoutHook conf)
 
     -- Resize viewed windows to the correct size
     , ((modm,               xK_n     ), refresh)
@@ -96,16 +97,16 @@ myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
     , ((modm .|. shiftMask, xK_u     ), windows W.swapMaster)
 
     -- Swap the focused window with the next window
-    , ((modm .|. shiftMask, xK_Down  ), windows W.swapDown  )
+    , ((modm .|. controlMask, xK_Down), windows W.swapDown  )
 
     -- Swap the focused window with the previous window
-    , ((modm .|. shiftMask, xK_Up    ), windows W.swapUp    )
+    , ((modm .|. controlMask, xK_Up  ), windows W.swapUp    )
 
     -- Shrink the master area
-    , ((modm,               xK_Left  ), sendMessage Shrink)
+    , ((modm .|. shiftMask, xK_Left  ), sendMessage Shrink)
 
     -- Expand the master area
-    , ((modm,               xK_Right ), sendMessage Expand)
+    , ((modm .|. shiftMask, xK_Right ), sendMessage Expand)
 
     -- Push window back into tiling
     , ((modm,               xK_t     ), withFocused $ windows . W.sink)
@@ -193,7 +194,7 @@ myLayout = tiled ||| Mirror tiled ||| Full
      ratio   = 1/2
 
      -- Percent of screen to increment by when resizing panes
-     delta   = 3/100
+     delta   = 5/100
 
 ------------------------------------------------------------------------
 -- Window rules:
@@ -213,6 +214,9 @@ myLayout = tiled ||| Mirror tiled ||| Full
 myManageHook = composeAll
     [ className =? "MPlayer"        --> doFloat
     , className =? "Gimp"           --> doFloat
+    , className =? "kcalc"          --> doFloat
+    , className =? "systemmonitor"  --> doFloat
+    , className =? "Artha"  --> doFloat
     , resource  =? "desktop_window" --> doIgnore
     , resource  =? "kdesktop"       --> doIgnore ]
 
@@ -243,7 +247,13 @@ myLogHook = return ()
 -- per-workspace layout choices.
 --
 -- By default, do nothing.
-myStartupHook = return ()
+myStartupHook = do
+	spawnOnce "feh --bg-fil ~/pictures/wallpapers/Background-touhou.png &"
+	spawnOnce "picom &"
+
+
+
+
 
 ------------------------------------------------------------------------
 -- Now run xmonad with all the defaults we set up.
@@ -331,19 +341,3 @@ help = unlines ["The default modifier key is 'alt'. Default keybindings:",
     "mod-button1  Set the window to floating mode and move by dragging",
     "mod-button2  Raise the window to the top of the stack",
     "mod-button3  Set the window to floating mode and resize by dragging"]
-
---  `additionalKeysP`
---  [
---  ("M-<Space>", spawn "dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'Terminus:bold:pixelsize=18' ") 
---  ,("M-<Return>", spawn "alacritty")
---  ,("M-S-<Return>", spawn "dolphin")
---  ]
---
---myLayout = tiled ||| Mirror tiled ||| Full ||| threeCol
---  where
---    threeCol = magnifiercz' 1.3 $ ThreeColMid nmaster delta ratio
---    tiled    = Tall nmaster delta ratio
---    nmaster  = 1      -- Default number of windows in the master pane
---    ratio    = 1/2    -- Default proportion of screen occupied by master pane
---    delta    = 3/100  -- Percent of screen to increment by when resizing panes
---
