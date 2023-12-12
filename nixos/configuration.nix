@@ -515,5 +515,6 @@ in
   cabextract
   uget
   haskellPackages.xmobar
+  trayer
   ];
 }

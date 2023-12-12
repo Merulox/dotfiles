@@ -12,15 +12,18 @@ import Data.Monoid
 import System.Exit
 import XMonad.Actions.CycleWS
 import XMonad.Actions.NoBorders
+import XMonad.Actions.UpdatePointer 
 import XMonad.Actions.WindowGo
 import XMonad.Hooks.DynamicLog
 import XMonad.Hooks.ManageDocks
 import XMonad.Layout.Accordion
+import XMonad.Layout.ResizableTile
 import XMonad.Layout.Spacing
-import XMonad.Layout.ToggleLayouts
 import XMonad.Layout.ThreeColumns
+import XMonad.Layout.ToggleLayouts
+import XMonad.Layout.TwoPane
 import XMonad.ManageHook
-import XMonad.Util.EZConfig (additionalKeys)
+import XMonad.Util.EZConfig 
 import XMonad.Util.NamedScratchpad
 import XMonad.Util.SpawnOnce
 import XMonad.Util.Run
@@ -98,18 +101,14 @@ toggleFull = withFocused (\windowId -> do    {
 -- Key bindings. Add, modify or remove key bindings here.
 --
 -- myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
-myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
+myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $ 
 
-    -- launch a terminal
+    -- app shortcuts
     [ ((modm,               xK_Return), spawn $ XMonad.terminal conf)
-
-    -- launch file manager
     , ((modm .|. shiftMask, xK_Return), spawn "dolphin")
-
-    -- launch dmenu
     , ((modm,               xK_space ), spawn "dmenu_run -i  -sb '#1B6FC6'  -fn 'Terminus:bold:pixelsize=16'")
-
     , ((modm .|. controlMask,xK_space), spawn "j4-dmenu-desktop")
+    --, ((modm, 
 
     -- close focused window
     , ((modm .|. shiftMask, xK_c     ), kill)
@@ -146,7 +145,11 @@ myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
 
     -- Expand the master area
     , ((modm .|. shiftMask, xK_Right ), sendMessage Expand)
-
+     
+    -- Slave Height
+   -- , ((modm .|. shiftMask, xK_Up    ), sendMessage $)
+   -- , ((modm .|. shiftMask, xK_Down  ), sendMessage $)
+    
     -- Push window back into tiling
     , ((modm,               xK_t     ), withFocused $ windows . W.sink)
 
@@ -197,10 +200,16 @@ myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
         , (f, m) <- [(W.greedyView, 0), (W.shift, shiftMask)]]
     ++
 
-    [ ((modm, k), windows $ W.greedyView i)
-        | (i, k) <- zip myWorkspaces [xK_0, xK_F1 .. xK_F9]
+    -- Move to workspaces 10-19 with mod+0 and mod+fn keys 
+    [((modm, k), windows $ W.greedyView i)
+        | (i, k) <- zip (drop 9 myWorkspaces) [xK_0, xK_F1, xK_F2, xK_F3, xK_F4, xK_F5, xK_F6, xK_F7, xK_F8,  xK_F9]
     ]
-
+    ++
+   
+    -- Move focused window to workspaces 10-19 using mod+shift+0 and mod+Shift+fn keys
+    [((modm .|. shiftMask, k), windows $ W.shift i)
+        | (i, k) <- zip (drop 9 myWorkspaces) [xK_0, xK_F1, xK_F2, xK_F3, xK_F4, xK_F5, xK_F6, xK_F7, xK_F8,  xK_F9]
+    ]
 ------------------------------------------------------------------------
 -- Mouse bindings: default actions bound to mouse events
 --
@@ -231,7 +240,7 @@ myMouseBindings (XConfig {XMonad.modMask = modm}) = M.fromList $
 -- The available layouts.  Note that each layout is separated by |||,
 -- which denotes layout choice.
 --
-myLayout = avoidStruts $ spacing 5 (tiled ||| Mirror tiled ||| Accordion ||| ThreeColMid 1 (3/100) (1/2) ||| Full)
+myLayout = avoidStruts $ spacing 5 (ResizableTall 1 (5/100) (1/2) [] ||| Mirror tiled ||| ThreeColMid 1 (3/100) (1/2) ||| Accordion ||| TwoPane (3/100) (1/2)  |||Full)
   where
      -- default tiling algorithm partitions the screen into two panes
      tiled   = Tall nmaster delta ratio
@@ -291,7 +300,8 @@ myEventHook = mempty
 -- Perform an arbitrary action on each internal state change or X event.
 -- See the 'XMonad.Hooks.DynamicLog' extension for examples.
 --
-myLogHook = return ()
+myLogHook = dynamicLog
+            >> updatePointer (0.5, 0.5) (0, 0)
 
 ------------------------------------------------------------------------
 -- Startup hook
@@ -317,14 +327,12 @@ myStartupHook = do
 main = do
   xmproc <- spawnPipe "xmobar -x 0 ~/.config/xmobar/xmobar.config"
   xmonad $ docks defaults  
-
-
---   { logHook = dynamicLogWithPP xmobarPP
---        { ppOutput = hPutStrLn xmproc
---        , ppOrder = \(ws:_:t:_) -> [ws, t]
---        }
---    -- Other configurations...
---    }
+   { logHook = dynamicLogWithPP xmobarPP
+        { ppOutput = hPutStrLn xmproc
+        , ppOrder = \(ws:_:t:_) -> [ws, t]
+        }
+    -- Other configurations...
+    } 
 
 -- A structure containing your configuration settings, overriding
 -- fields in the default config. Any you don't override, will
