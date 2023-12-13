@@ -516,5 +516,6 @@ in
   uget
   haskellPackages.xmobar
   trayer
+  xorg.xev
   ];
 }
