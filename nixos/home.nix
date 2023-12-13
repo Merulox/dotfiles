@@ -41,6 +41,8 @@
   extraConfig = ''
     set relativenumber 
     set number
+    nmap <Enter> o<ESC> 
+    nmap <S-Enter> O<ESC>
   '';
   plugins = with pkgs.vimPlugins; [
   vim-nix

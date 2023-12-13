@@ -517,5 +517,6 @@ in
   haskellPackages.xmobar
   trayer
   xorg.xev
+  logseq
   ];
 }

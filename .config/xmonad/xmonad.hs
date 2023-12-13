@@ -310,6 +310,8 @@ myStartupHook = do
         spawnOnce "WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"
         spawnOnce "calibre"
         spawnOnce "org.nicotine_plus.Nicotine"
+	spawnOnce "obsidian"
+	spawnOnce "xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1" 
 
 
 
