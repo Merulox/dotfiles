@@ -19,6 +19,7 @@ import XMonad.Actions.WindowGo
 import XMonad.Hooks.DynamicLog
 import XMonad.Hooks.EwmhDesktops
 import XMonad.Hooks.ManageDocks
+import XMonad.Hooks.ManageHelpers
 import XMonad.Layout.Accordion
 import XMonad.Layout.ResizableTile
 import XMonad.Layout.Spacing
@@ -145,7 +146,7 @@ myKeys conf@(XConfig {XMonad.modMask = modm}) = M.fromList $
 
 
     -- Scratchpads
-    , ((modm .|. controlMask .|. shiftMask, xK_t), namedScratchpadAction scratchpads "htop")
+    --, ((modm .|. controlMask .|. shiftMask, xK_t), namedScratchpadAction scratchpads "htop")
     , ((modm .|. controlMask .|. shiftMask, xK_s), namedScratchpadAction scratchpads "stardict")
     , ((modm .|. controlMask .|. shiftMask, xK_n), namedScratchpadAction scratchpads "notes")
     ]
@@ -254,10 +255,17 @@ myLayout = avoidStruts $  tiled
 --
 myManageHook = composeAll
     [ className =? "MPlayer"        --> doFloat
+    , stringProperty "WM_WINDOW_ROLE" =? "pop-up"         --> doFloat
+    , stringProperty "WM_WINDOW_ROLE" =? "^Preferences$"  --> doFloat
+    , stringProperty "WM_WINDOW_ROLE" =? "setup"          --> doFloat
     , className =? "Gimp"           --> doFloat
     , className =? "kcalc"          --> doFloat
     , className =? "systemmonitor"  --> doFloat
     , className =? "Artha"  --> doFloat
+    , title     =? "ncpamixer" --> doRectFloat (W.RationalRect 0.6 0.33 0.24 0.24)
+    , title     =? "Copying"   --> doFloat
+    , title     =? "Deleting"   --> doFloat
+    , title     =? "Moving"   --> doFloat
     , resource  =? "desktop_window" --> doIgnore
     , resource  =? "kdesktop"       --> doIgnore 
     , namedScratchpadManageHook scratchpads
@@ -296,6 +304,9 @@ myLogHook = dynamicLog
 -- By default, do nothing.
 -- startup apps
 myStartupHook = do
+	spawnOnce "vivaldi"
+	spawnOnce "alacritty -e xset r rate 300 25"
+	spawnOnce "~/.config/xmonad/scripts/xrandr.sh"
         spawnOnce "feh --bg-fil ~/pictures/wallpapers/Background-touhou.png &"
         spawnOnce "picom &"
         spawnOnce "~/.config/xmonad/scripts/xrandr.sh &"
@@ -310,8 +321,8 @@ myStartupHook = do
         spawnOnce "WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"
         spawnOnce "calibre"
         spawnOnce "org.nicotine_plus.Nicotine"
-	spawnOnce "obsidian"
-	spawnOnce "xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1" 
+        spawnOnce "obsidian"
+        spawnOnce "xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1" 
 
 
 

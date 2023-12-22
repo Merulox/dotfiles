@@ -145,6 +145,7 @@
     { method = "gaussian";
       size = 10;
       deviation = 5.0;
+      use-ewmh-active-win = true;
      };
    };
    fadeExclude = [
