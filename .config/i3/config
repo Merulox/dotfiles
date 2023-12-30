@@ -34,7 +34,7 @@ exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-m
 #exec --no-startup-id redshift
 exec_always alacritty -e xset r rate 300 25
 
-################# autostart / startup - execute applications at boot time
+################# autostart / startup apps - execute applications at boot time
 #exec_always --no-startup-id ~/.config/i3/scripts/protonvpn
 exec_always --no-startup-id alacritty -e sudo protonvpn c --p2p --title "protonvpn-c"
 exec_always --no-startup-id picom
@@ -55,20 +55,21 @@ exec --no-startup-id psi-plus
 #exec --no-startup-id anki
 exec --no-startup-id bitwarden
 #exec --no-startup-id clementine
-exec --no-startup-id rednotebook
+#exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
 #exec --no-startup-id discord
 exec --no-startup-id webcord
 #exec --no-startup-id Cider
 exec --no-startup-id element-desktop
 exec --no-startup-id fluent-reader
-exec --no-startup-id spotify
+#exec --no-startup-id spotify
 exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
 exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
 exec --no-startup-id calibre
 exec --no-startup-id org.nicotine_plus.Nicotine
 #exec --no-startup-id protonvpn
 exec --no-startup-id obsidian
+exec --no-startup-id io.github.hydrusnetwork.hydrus 
 ################# applications keyboard shortcuts  
 
 bindsym $mod+mod1+ctrl+w exec --no-startup-id artha
@@ -90,6 +91,7 @@ bindsym $mod+c exec --no-startup-id clipmenu
 #bindsym mod1+ctrl+space exec xkb-switch -n
 #bindsym mod1+ctrl+0x27 exec rofimoji
 bindsym $mod+shift+w exec warpd --hint2
+bindsym $mod+mod1+l exec --no-startup-id layout_manager
 
 ################# logout
 
@@ -108,6 +110,12 @@ mode "$mode_system" {
 }
 bindsym $mod+0xff1b mode "$mode_system"
 
+#CapsLock indicator
+mode "CAPSLOCK" {
+    bindsym Caps_Lock mode "default"
+}
+
+bindsym Caps_Lock mode "CAPSLOCK"
 
 ####### workspaces
 set $wsw1 "1:w1"
@@ -332,12 +340,13 @@ font pango:Terminus 14
   assign [class="element-desktop|element|Element|cinny|Cinny"]  $ws13
   assign [class="obsidian"] $ws2
   assign [class="thunderbird|Thunderbird|calibre"]   $ws11
-  assign [class="musicbee.exe"]  $ws12
+  assign [class="musicbee.exe|spotify"]  $ws12
   assign [class="Psi+"] $ws14
   assign [class="bitwarden|Bitwarden|Bitwarden-desktop"] $ws8
   assign [class="code-oss"] $ws2
   assign [class="anki|Anki"] $ws3
   assign [class="jetbrains-pycharm-ce"] $ws6
+  assign [class="qBittorrent"] $ws9
   assign [class="vivaldi|Vivaldi"] $ws1
   assign [title="protonvpn-c"] $ws5
   assign [class="Rednotebook|rednotebook"] $ws7
@@ -518,6 +527,8 @@ bar {
 
 # move the currently focused window to the scratchpad
  bindsym $mod+shift+ctrl+s move scratchpad
+ bindsym $mod+mod1+h [class="Hydrus Client"] scratchpad show
+ for_window [class="Hydrus Client"] move scratchpad
 
 # Show the next scratchpad window or hide the focused scratchpad window.
 # If there are multiple scratchpad windows, this command cycles through them.

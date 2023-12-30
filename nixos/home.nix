@@ -43,6 +43,8 @@
     set number
     nmap <Enter> o<ESC> 
     nmap <S-Enter> O<ESC>
+    map <C-S-Tab> gT
+    map <C-Tab> gt
   '';
   plugins = with pkgs.vimPlugins; [
   vim-nix
@@ -59,16 +61,15 @@
   };
 
 
-#  # Desktop Entries
-#  xdg.desktopEntries = {
-#    neovim = {
-#      name = "nvim";
-#      genericName = "neovim";
-#      exec = "nvim";
-#      terminal = true;
-#      mimeType = [ "EDITOR" "SUDO_EDITOR" "VISUAL" ];
-#    };
-#  };
+  # Desktop Entries
+  xdg.desktopEntries = {
+    musicbee = {
+      name = "MusicBee";
+      genericName = "Music Player";
+      exec = "WINEPREFIX=/home/merulox/MusicBeePrefix wine /home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk";
+      terminal = false;
+    };
+  };
 
   # fzf
   programs.fzf.enable = true;

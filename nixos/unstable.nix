@@ -8,5 +8,6 @@ in {
      unstable.rclone
      #unstable.floorp
      unstable.quodlibet
+     unstable.animdl
   ];
 }

@@ -157,6 +157,15 @@ in
     windowManager.xmonad.config = builtins.readFile /home/merulox/.config/xmonad/xmonad.hs;
     videoDrivers = ["nvidia"];
  };
+  #environment.plasma5.excludePackages = with pkgs.libsForQt5; [
+  #  elisa
+  #  gwenview
+  #  okular
+  #  oxygen
+  #  khelpcenter
+  #  konsole
+  #  print-manager
+  #];
 
   # Define a user account. Don't forget to set a password with 'passwd'.
   users.users.merulox = {
@@ -517,6 +526,8 @@ in
   haskellPackages.xmobar
   trayer
   xorg.xev
-  logseq
+  i3-layout-manager
+  htop
+  fzf
   ];
 }
