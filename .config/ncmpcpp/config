@@ -1,0 +1,7 @@
+mpd_music_dir=/mnt/data/Audio/Music
+ncmpcpp_directory=~/.config/ncmpcpp
+mpd_host = "localhost"
+mpd_port = "6600"
+
+# Look into making media library's first panel be album artists
+# Look into adding a shortcut (maybe ctrl+d) to remove the currently playing song from the playlist
