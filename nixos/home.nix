@@ -81,9 +81,11 @@
   programs.navi.enable = true;
 
   # ncmpcpp
-  programs.ncmpcpp.enable = true;
-  programs.ncmpcpp.settings = {ncmpcpp_directory = "/etc/nixos/ncmpcpp";};
-  
+ # programs.ncmpcpp = {
+ # enable = true;
+ # settings = {ncmpcpp_directory = "/etc/nixos/ncmpcpp";};
+ # };
+
   # mpd
   services.mpd = {
   enable = true;
@@ -96,6 +98,8 @@
    }
   '';
   };
+  
+
 
   # Alacritty
   programs.alacritty = {

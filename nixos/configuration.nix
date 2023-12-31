@@ -89,6 +89,19 @@ in
  #   };
  # };
 
+  # mpdscribble
+  services.mpdscribble = {
+  enable = true;
+  endpoints = {
+    "last.fm" = {
+     passwordFile = "/home/merulox/.config/mpdscribble/passwordfile";
+     username = "merulox";
+    };  
+  };
+  port = 6000;
+  host = "localhost";
+  };
+
   # Pulseaudio
   #hardware.pulseaudio.enable = true;
   #hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
@@ -377,6 +390,7 @@ in
   arc-theme
   arc-kde-theme
   clementine
+  strawberry
   wine
   winetricks
   dracula-theme
@@ -529,5 +543,8 @@ in
   i3-layout-manager
   htop
   fzf
+  ncmpcpp
+  mpdscribble
+  libsForQt5.kfind
   ];
 }
