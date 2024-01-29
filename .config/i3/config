@@ -39,7 +39,7 @@ exec_always alacritty -e xset r rate 300 25
 exec_always --no-startup-id alacritty -e sudo protonvpn c --p2p --title "protonvpn-c"
 exec_always --no-startup-id picom
 exec_always --no-startup-id sudo mount /dev/sda1 /mnt/data
-exec_always --no-startup-id feh --bg-fil ~/pictures/variety/wa.png 
+exec_always --no-startup-id feh --bg-fil /home/merulox/pictures/wallpapers/ks3tuv.png
 exec_always --no-startup-id autotiling
 exec --no-startup-id vivaldi
  for_window [class="Vivaldi-stable"] focus
@@ -61,10 +61,10 @@ exec --no-startup-id clipmenud
 exec --no-startup-id webcord
 #exec --no-startup-id Cider
 exec --no-startup-id element-desktop
-exec --no-startup-id fluent-reader
+#exec --no-startup-id fluent-reader
 #exec --no-startup-id spotify
 exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
-exec --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" DP-4
+#exec_always --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" $firstMonitor
 exec --no-startup-id calibre
 exec --no-startup-id org.nicotine_plus.Nicotine
 #exec --no-startup-id protonvpn
@@ -76,10 +76,12 @@ bindsym $mod+mod1+ctrl+w exec --no-startup-id artha
 bindsym $mod+mod1+k exec --no-startup-id kcalc
 bindsym $mod+mod1+p exec --no-startup-id pavucontrol
 bindsym $mod+mod1+s exec --no-startup-id systemmonitor
+bindsym $mod+mod1+m exec --no-startup-id alacritty -e ncmpcpp
 bindsym $mod+Return exec --no-startup-id alacritty;focus
 #bindsym $mod+x exec --no-startup-id xfce4-terminal --drop-down; focus
 bindsym $mod+Shift+Return exec --no-startup-id dolphin
 bindsym Print exec --no-startup-id flameshot gui
+bindsym shift+Print exec --no-startup-id flameshot full -c
 bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'Terminus:bold:pixelsize=18'
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
 bindsym $mod+w exec --no-startup-id ~/scripts/dmenu-win
@@ -89,7 +91,7 @@ bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
 bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
 bindsym $mod+c exec --no-startup-id clipmenu
 #bindsym mod1+ctrl+space exec xkb-switch -n
-#bindsym mod1+ctrl+0x27 exec rofimoji
+bindsym mod1+ctrl+0x27 exec "cd ~/git/splatmoji/ && ./splatmoji copy"
 bindsym $mod+shift+w exec warpd --hint2
 bindsym $mod+mod1+l exec --no-startup-id layout_manager
 
@@ -252,6 +254,9 @@ floating_modifier $mod
 # toggle tiling / floating
 bindsym $mod+Shift+space floating toggle
 
+# toggle sticky
+bindsym $mod+0x3b sticky toggle
+
 # move focus
 bindsym $mod+Left focus left
 bindsym $mod+Down focus down
@@ -354,6 +359,7 @@ font pango:Terminus 14
   assign [class="Discord|discord|webcord|WebCord"] $ws5
   assign [class="fluent-reader"] $ws6
   assign [class=".protonvpn-wrapped|org.nicotine_plus.Nicotine"] $ws15
+  assign [class="obs"] $wsw5
 
 ################# floating or tiled rules         
 #Personal:
@@ -528,7 +534,7 @@ bar {
 # move the currently focused window to the scratchpad
  bindsym $mod+shift+ctrl+s move scratchpad
  bindsym $mod+mod1+h [class="Hydrus Client"] scratchpad show
- for_window [class="Hydrus Client"] move scratchpad
+ #for_window [class="Hydrus Client"] move scratchpad
 
 # Show the next scratchpad window or hide the focused scratchpad window.
 # If there are multiple scratchpad windows, this command cycles through them.

@@ -94,9 +94,13 @@ in
   enable = true;
   endpoints = {
     "last.fm" = {
-     passwordFile = "/home/merulox/.config/mpdscribble/passwordfile";
+     passwordFile = "/home/merulox/.config/mpdscribble/lastfm-passwordfile";
      username = "merulox";
     };  
+    "listenbrainz" = {
+     passwordFile = "/home/merulox/.config/mpdscribble/listenbrainz-passwordfile";
+     username = "merulox";
+    };
   };
   port = 6000;
   host = "localhost";
@@ -184,7 +188,7 @@ in
   users.users.merulox = {
     isNormalUser = true;
     description = "merulox";
-    extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" ];
+    extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" "libvirtd" ];
     packages = with pkgs; [];
     uid = 1000;
   };
@@ -257,7 +261,7 @@ in
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config";}; 
+    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p";}; 
  
   # Cachix
     nix.settings = {
@@ -282,8 +286,9 @@ in
     XDG_RUNTIME_DIR = "/run/user/1000"; 
   };
   
-  # Honkers Railway Launcher
-  programs.honkers-railway-launcher.enable = true;
+  # virtualisation / kvm / vm
+  virtualisation.libvirtd.enable = true;
+  programs.dconf.enable = true; # virt-manager requires dconf to remember settings
 
   # japanese
   i18n.inputMethod = {
@@ -546,5 +551,12 @@ in
   ncmpcpp
   mpdscribble
   libsForQt5.kfind
+  rofi
+  xsel
+  virt-manager
+  hypnotix
+  #tor-browser
+  ledger-live-desktop
+  hakuneko
   ];
 }

@@ -86,6 +86,14 @@
  # settings = {ncmpcpp_directory = "/etc/nixos/ncmpcpp";};
  # };
 
+  # virt-manager code snippet
+  dconf.settings = {
+  "org/virt-manager/virt-manager/connections" = {
+    autoconnect = ["qemu:///system"];
+    uris = ["qemu:///system"];
+   };
+  };
+
   # mpd
   services.mpd = {
   enable = true;
@@ -154,13 +162,14 @@
      };
    };
    fadeExclude = [
-  "window_type *= 'menu'"
-  "name ~= 'vivaldi$'"
-  ];
-  # opacityRules = [
-  #   "100:WM_CLASS = 'mpv'"
-  #   "100:WM_CLASS = 'betterlockscreen'"
-  # ];
+     "window_type *= 'menu'"
+     "name ~= 'vivaldi$'"
+   ];
+   opacityRules = [
+     "100:class_g = 'mpv'"
+     "100:class_g = 'gl'"
+     "100:class_g = 'i3lock'"
+   ];
    
   };
 

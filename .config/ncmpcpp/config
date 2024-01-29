@@ -3,6 +3,7 @@ ncmpcpp_directory=~/.config/ncmpcpp
 mpd_host = "localhost"
 mpd_port = "6600"
 media_library_primary_tag = album_artist
+bind_to_key D playlist_remove
 
 
 
