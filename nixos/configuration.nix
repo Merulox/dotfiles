@@ -33,6 +33,8 @@ in
   # Insecure packages
   nixpkgs.config.permittedInsecurePackages = [
    "electron-24.8.6"
+   "adobe-reader-9.5.5"
+
   ];
 
   # Opengl hardware
@@ -558,5 +560,6 @@ in
   #tor-browser
   ledger-live-desktop
   hakuneko
+  adobe-reader
   ];
 }
