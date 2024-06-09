@@ -197,7 +197,16 @@
  #  "inode/directory" = ["org.kde.dolphin.desktop"]; 
  #  };
  # };
- 
+
+ # Desktop files
+ xdg.desktopEntries.lunar-client = {
+  name = "Lunar Client";
+  exec = "__GL_THREADED_OPTIMIZATIONS=0 lunar-client";
+  terminal = false;
+  type = "Application";
+
+ };
+
   # Path
   home.sessionPath = [
   "$HOME/.local/bin"

@@ -7,7 +7,11 @@ in {
      unstable.calibre
      unstable.rclone
      #unstable.floorp
-     unstable.quodlibet
-     unstable.animdl
+     #unstable.quodlibet
+     unstable.lunar-client
+     unstable.protonvpn-gui
+     unstable.osu-lazer-bin
+     unstable.ani-cli
+     unstable.vivaldi
   ];
 }

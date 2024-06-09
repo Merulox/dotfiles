@@ -16,8 +16,7 @@ in
       ./hardware-configuration.nix
       <home-manager/nixos>
       ./unstable.nix
-      aagl-gtk-on-nix.module
-      nix-gaming.nixosModules.pipewireLowLatency
+      #aagl-gtk-on-nix.module
     ];
 
   # Home-manager
@@ -33,7 +32,6 @@ in
   # Insecure packages
   nixpkgs.config.permittedInsecurePackages = [
    "electron-24.8.6"
-   "adobe-reader-9.5.5"
 
   ];
 
@@ -50,8 +48,14 @@ in
     # Modesetting is needed for most wayland compositors
     modesetting.enable = true;
 
-    # Use the open source version of the kernel module
-    # Only available on driver 515.43.04+
+    
+    # Use the NVidia open source kernel module (not to be confused with the
+    # independent third-party "nouveau" open source driver).
+    # Support is limited to the Turing and later architectures. Full list of 
+    # supported GPUs is at: 
+    # https://github.com/NVIDIA/open-gpu-kernel-modules#compatible-gpus 
+    # Only available from driver 515.43.04+
+    # Currently alpha-quality/buggy, so false is currently the recommended setting.
     open = true;
 
     # Enable the nvidia settings menu
@@ -119,7 +123,6 @@ in
    alsa.enable = true;
    alsa.support32Bit = true;
    pulse.enable = true;
-   lowLatency.enable = true;
   };
 
   # bluetooth 
@@ -202,6 +205,8 @@ in
   nix.settings.trusted-users = [ "root" "merulox" ];
   # Default Shell
   users.defaultUserShell = pkgs.fish;
+  # Piper
+  services.ratbagd.enable = true;
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
@@ -366,7 +371,7 @@ in
   i3status
   i3blocks
   xkb-switch
-  vivaldi
+  #vivaldi - moved to unstable
   firefox
   alacritty
   bitwarden
@@ -408,7 +413,7 @@ in
   cinnamon.nemo
   cinnamon.nemo-fileroller
   libsForQt5.ark
-  python38
+  python39Full
   libGL
   gnome.gedit
   lxappearance
@@ -490,7 +495,6 @@ in
   autokey
   icu
   appimage-run
-  #osu-lazer-bin
   #nix-gaming.packages.${pkgs.hostPlatform.system}."osu-lazer-bin"
   vscode
   bottles
@@ -519,7 +523,6 @@ in
   openvpn
   networkmanager-openvpn
   protonvpn-cli_2
-  ani-cli
   trackma-qt
   ffmpeg
   nicotine-plus
@@ -560,6 +563,14 @@ in
   #tor-browser
   ledger-live-desktop
   hakuneko
-  adobe-reader
+  protontricks
+  cpu-x
+  piper
+  #samba4Full # stuff for YosugaNoSora/wine
+  #dolphin-emu
+  deadbeef-with-plugins
+  poetry
+  python311Packages.pyautogui
+
   ];
 }

@@ -27,20 +27,25 @@ set $mod Mod4
 
 # current displays
 
-exec_always --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
+#exec_always --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
+exec_always --no-startup-id xrandr --output $firstMonitor --primary --mode 2560x1440 --pos 0x0 --rotate normal --output $secondMonitor --off
 #exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
 #exec --no-startup-id xrandr --output HDMI-0 --rotate left
 exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
+exec_always --no-startup-id xinput set-prop 'Logitech G502 HERO Gaming Mouse' 'libinput Scroll Method Enabled' 0 0 1
+exec_always --no-startup-id xinput set-prop 'Logitech G502 HERO Gaming Mouse' 'libinput Accel Profile Enabled' 0, 1
+exec_always --no-startup-id xinput set-prop 'Logitech G502 HERO Gaming Mouse' 'libinput Middle Emulation Enabled' 0
+#exec_always --no-startup-id xinput set-prop 'Logitech G502 HERO Gaming Mouse' 'libinput Middle Emulation Enabled' 0, 1
 exec_always --no-startup-id xinput set-prop 'SONiX USB DEVICE' 'libinput Scroll Method Enabled' 0 0 1
 #exec --no-startup-id redshift
 exec_always alacritty -e xset r rate 300 25
 
 ################# autostart / startup apps - execute applications at boot time
 #exec_always --no-startup-id ~/.config/i3/scripts/protonvpn
-exec_always --no-startup-id alacritty -e sudo protonvpn c --p2p --title "protonvpn-c"
+#exec_always --no-startup-id alacritty -e sudo protonvpn c --p2p --title "protonvpn-c"
 exec_always --no-startup-id picom
 exec_always --no-startup-id sudo mount /dev/sda1 /mnt/data
-exec_always --no-startup-id feh --bg-fil /home/merulox/pictures/wallpapers/ks3tuv.png
+exec_always --no-startup-id feh --bg-fil /home/merulox/pictures/wallpapers/black.png
 exec_always --no-startup-id autotiling
 exec --no-startup-id vivaldi
  for_window [class="Vivaldi-stable"] focus
@@ -53,17 +58,17 @@ exec --no-startup-id psi-plus
 #exec --no-startup-id thunderbird
 #exec --no-startup-id pycharm
 #exec --no-startup-id code-oss
-#exec --no-startup-id anki
+exec --no-startup-id anki
 exec --no-startup-id bitwarden
 #exec --no-startup-id clementine
 #exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
-#exec --no-startup-id discord
-exec --no-startup-id webcord
+exec --no-startup-id discord
+#exec --no-startup-id webcord
 #exec --no-startup-id Cider
 exec --no-startup-id element-desktop
 #exec --no-startup-id fluent-reader
-#exec --no-startup-id spotify
+exec --no-startup-id spotify
 exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
 #exec_always --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" $firstMonitor
 exec --no-startup-id calibre
@@ -350,7 +355,7 @@ font pango:Terminus 14
   assign [class="Psi+"] $ws14
   assign [class="bitwarden|Bitwarden|Bitwarden-desktop"] $ws8
   assign [class="code-oss"] $ws2
-  assign [class="anki|Anki"] $ws3
+  assign [class="anki|Anki"] $ws7
   assign [class="jetbrains-pycharm-ce"] $ws6
   assign [class="qBittorrent"] $ws9
   assign [class="vivaldi|Vivaldi"] $ws1
