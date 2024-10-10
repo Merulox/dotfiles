@@ -113,17 +113,18 @@ in
   };
 
   # Pulseaudio
-  #hardware.pulseaudio.enable = true;
-  #hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
+  hardware.pulseaudio.enable = true;
+  hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
   
   # PipeWire
-  security.rtkit.enable = true;
-  services.pipewire = {
-   enable = true;
-   alsa.enable = true;
-   alsa.support32Bit = true;
-   pulse.enable = true;
-  };
+  #security.rtkit.enable = true;
+  #services.pipewire = {
+  # enable = true;
+  # alsa.enable = true;
+  # alsa.support32Bit = true;
+  # pulse.enable = true;
+  # jack.enable=true;
+  #};
 
   # bluetooth 
   hardware.bluetooth.enable = true;
@@ -135,7 +136,7 @@ in
   # podman
   virtualisation.podman.enable = true; # for distrobox
   #virtualisation.podman.rootless.enable = true;
-  # Mount drive
+   #Mount drive
    fileSystems."/mnt/data" =
     { device = "/dev/sda1";
       fsType = "ntfs-3g"; 
@@ -170,15 +171,23 @@ in
   # Configure keymap in X11
   services.xserver = {
     enable = true;
-    layout = "us";
-    xkbVariant = "";
-    displayManager.sddm.enable = true;
+    xkb = {
+      variant = "";
+      layout = "us";
+    };
     windowManager.i3.enable = true; 
     windowManager.xmonad.enable = true;
     windowManager.xmonad.enableContribAndExtras = true;
     windowManager.xmonad.config = builtins.readFile /home/merulox/.config/xmonad/xmonad.hs;
     videoDrivers = ["nvidia"];
  };
+  services.displayManager.sddm.enable = true;
+  services.xserver.displayManager.setupCommands = 
+  "
+  export XDG_MENU_PREFIX=plasma-
+  systemctl --user import-environment XDG_MENU_PREFIX
+  dbus-update-activation-environment XDG_MENU_PREFIX
+  ";
   #environment.plasma5.excludePackages = with pkgs.libsForQt5; [
   #  elisa
   #  gwenview
@@ -213,18 +222,24 @@ in
 
   # Environment variables
   environment.sessionVariables = rec {
-  QT_QPA_PLATFORMTHEME = "qt5ct";
+  QT_QPA_PLATFORMTHEME = "qt6ct";
   #XDG_CURRENT_DESKTOP = "KDE";
   #GTK_USE_PORTAL = "1";
   };
 
   # Desktop integration portals
-   #xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal pkgs.libsForQt5.xdg-desktop-portal-kde ];
+   #xdg.portal.config = [ pkgs.xdg-desktop-portal pkgs.kdePackages.xdg-desktop-portal-kde ];
     xdg.portal.enable = true;
+    xdg.portal = {
+      wlr.enable = true;
+      extraPortals = [
+        pkgs.xdg-desktop-portal-gtk
+      ];
+    };
  
 
   # Fonts
-  fonts.fonts = with pkgs; [
+  fonts.packages = with pkgs; [
   terminus_font
   carlito
   dejavu_fonts
@@ -233,6 +248,7 @@ in
   ttf_bitstream_vera
   font-awesome
   monocraft
+  open-sans
   ];
 
   fonts.fontconfig.defaultFonts = {
@@ -268,7 +284,7 @@ in
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p";}; 
+    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p"; airb = "~/scripts/airb"; aird = "~/scripts/aird";}; 
  
   # Cachix
     nix.settings = {
@@ -284,11 +300,12 @@ in
   user = "merulox";
   extraConfig = ''
     audio_output {
-      type "pipewire"
+      type "pulse"
       name "mpd"
-     }
+    }
    '';
   };
+  #type "pipewire"
   systemd.services.mpd.environment = {
     XDG_RUNTIME_DIR = "/run/user/1000"; 
   };
@@ -312,6 +329,9 @@ in
     GTK_IM_MODULE = "fcitx";
     SDL_IM_MODULE = "fcitx";
   };
+  # KDE mime apps fix
+  environment.etc."/xdg/menus/plasma-applications.menu".text = builtins.readFile "${pkgs.kdePackages.plasma-workspace}/etc/xdg/menus/plasma-applications.menu";
+
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
@@ -329,11 +349,19 @@ in
     #services.flameshot.enable = true;
     #services.dunst.enable = true;
 
+  # mime apps
+  xdg.mime.enable = true;
+  xdg.mime.defaultApplications = {
+    "image/png"="viewnior.desktop";
+    "image/jpeg"="viewnior.desktop";
+    "inode/directory"="org.kde.dolphin.desktop";
+  };
+
   # Printing
   services.printing.enable = true;
   services.printing.drivers = [ pkgs.brlaser pkgs.brgenml1lpr pkgs.brgenml1cupswrapper ];
   services.avahi.enable = true;
-  services.avahi.nssmdns = true;
+  services.avahi.nssmdns4 = true;
   # for a WiFi printer
   # services.avahi.openFirewall = true;
  
@@ -358,7 +386,7 @@ in
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
   system.stateVersion = "23.05"; # Did you read the comment?
   system.copySystemConfiguration = true;
-
+  system.autoUpgrade.enable = true; # updates to the latest channels release
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget
@@ -377,14 +405,15 @@ in
   bitwarden
   thunderbird
   xdg-desktop-portal
-  libsForQt5.xdg-desktop-portal-kde
+  kdePackages.xdg-desktop-portal-kde
   autotiling
   xfce.thunar
   ntfs3g  
   discord
   flameshot
-  libsForQt5.qt5ct
-  libsForQt5.kdialog
+  #libsForQt5.qt5ct
+  kdePackages.qt6ct
+  kdePackages.kdialog
   gnumake
   dunst
   libnotify
@@ -396,7 +425,7 @@ in
   vlc
   coreutils-full
   toybox
-  libsForQt5.kate
+  kdePackages.kate
   gnome-icon-theme
   ayu-theme-gtk
   arc-theme
@@ -412,24 +441,27 @@ in
   rednotebook
   cinnamon.nemo
   cinnamon.nemo-fileroller
-  libsForQt5.ark
+  kdePackages.ark
   python39Full
   libGL
-  gnome.gedit
+  gedit
   lxappearance
-  libsForQt5.oxygen
-  libsForQt5.oxygen-icons5
+  #themechanger
+  kdePackages.oxygen
+  kdePackages.oxygen-icons
   clipmenu
   emojipick
   xdotool
   libsForQt5.qtcurve
   libsForQt5.qtstyleplugins
   variety
-  libsForQt5.dolphin
-  libsForQt5.kio-extras
-  libsForQt5.ffmpegthumbs
-  libsForQt5.kdegraphics-thumbnailers
-  libsForQt5.qt5.qtimageformats
+  kdePackages.dolphin-plugins
+  kdePackages.kio-extras
+  kdePackages.ffmpegthumbs
+  kdePackages.kdegraphics-thumbnailers
+  kdePackages.qtimageformats
+  kdePackages.konsole
+  kdePackages.qtsvg
   blueman
   rxvt-unicode-unwrapped-emoji
   feh
@@ -460,8 +492,8 @@ in
   zoxide
   betterlockscreen
   artha
-  libsForQt5.plasma-workspace
-  libsForQt5.kcalc
+  kdePackages.plasma-workspace
+  kdePackages.kcalc
   warpd
   zsa-udev-rules
   qbittorrent
@@ -473,9 +505,9 @@ in
   nixos-option
   #osu-lazer
   krita
-  elementary-planner
+  #elementary-planner
   element-desktop
-  nheko
+  #nheko
   keepassxc
   psi-plus
   teamspeak5_client
@@ -485,12 +517,12 @@ in
   librewolf
   speedtest-cli
   spotify
-  libsForQt5.kde-cli-tools
+  kdePackages.kde-cli-tools
   unzip
   #cinny-desktop
   gparted
   protonup-qt
-  libsForQt5.kdenlive
+  kdePackages.kdenlive
   betterdiscordctl
   autokey
   icu
@@ -512,11 +544,11 @@ in
   wine-staging
   tmux
   fluent-reader
-  libsForQt5.systemsettings
-  libsForQt5.qtstyleplugin-kvantum
+  kdePackages.systemsettings
+  kdePackages.qtstyleplugin-kvantum
   copyq
   imagemagick
-  exa
+  eza
   qdirstat
   audacity
   gnome.libgnome-keyring
@@ -536,9 +568,10 @@ in
   moreutils
   mpd-mpris
   vencord
-  webcord-vencord
+  #webcord-vencord
+  vesktop
   viewnior
-  libsForQt5.kdeconnect-kde
+  kdePackages.kdeconnect-kde
   freetube
   xclip
   memento
@@ -555,22 +588,29 @@ in
   fzf
   ncmpcpp
   mpdscribble
-  libsForQt5.kfind
+  kdePackages.kfind
   rofi
   xsel
   virt-manager
   hypnotix
   #tor-browser
   ledger-live-desktop
-  hakuneko
+  #hakuneko
   protontricks
   cpu-x
   piper
   #samba4Full # stuff for YosugaNoSora/wine
   #dolphin-emu
   deadbeef-with-plugins
-  poetry
-  python311Packages.pyautogui
-
+  #r2modman
+  #keymapp switched to unstable
+  ueberzug
+  youtube-music
+  hexchat
+  pamix
+  onedrive
+  catnip #audio visualizer
+  cli-visualizer
+  gdb
   ];
 }

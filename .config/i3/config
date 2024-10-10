@@ -45,7 +45,7 @@ exec_always alacritty -e xset r rate 300 25
 #exec_always --no-startup-id alacritty -e sudo protonvpn c --p2p --title "protonvpn-c"
 exec_always --no-startup-id picom
 exec_always --no-startup-id sudo mount /dev/sda1 /mnt/data
-exec_always --no-startup-id feh --bg-fil /home/merulox/pictures/wallpapers/black.png
+exec_always --no-startup-id feh --bg-fil /home/merulox/pictures/wallpapers/black.jpg
 exec_always --no-startup-id autotiling
 exec --no-startup-id vivaldi
  for_window [class="Vivaldi-stable"] focus
@@ -63,19 +63,20 @@ exec --no-startup-id bitwarden
 #exec --no-startup-id clementine
 #exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
-exec --no-startup-id discord
+#exec --no-startup-id discord
+exec --no-startup-id vesktop
 #exec --no-startup-id webcord
 #exec --no-startup-id Cider
 exec --no-startup-id element-desktop
 #exec --no-startup-id fluent-reader
 exec --no-startup-id spotify
-exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
+#exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
 #exec_always --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" $firstMonitor
 exec --no-startup-id calibre
 exec --no-startup-id org.nicotine_plus.Nicotine
 #exec --no-startup-id protonvpn
 exec --no-startup-id obsidian
-exec --no-startup-id io.github.hydrusnetwork.hydrus 
+#exec --no-startup-id io.github.hydrusnetwork.hydrus 
 ################# applications keyboard shortcuts  
 
 bindsym $mod+mod1+ctrl+w exec --no-startup-id artha
@@ -92,7 +93,8 @@ bindsym $mod+0x20 exec --no-startup-id dmenu_run -i -nb '#191919' -nf '#fea63c' 
 bindsym $mod+ctrl+0x20 exec --no-startup-id j4-dmenu-desktop
 bindsym $mod+w exec --no-startup-id ~/scripts/dmenu-win
 #bindsym $mod+0xff1b exec --no-startup-id archlinux-logout
-bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer 
+#bindsym $mod+i exec --no-startup-id urxvt  -e ncpamixer 
+bindsym $mod+i exec --no-startup-id urxvt  -e pamix 
 bindsym $mod+shift+t exec --no-startup-id picom-trans -c +10
 bindsym $mod+shift+ctrl+t exec --no-startup-id picom-trans -c -1
 bindsym $mod+c exec --no-startup-id clipmenu
@@ -348,29 +350,28 @@ font pango:Terminus 14
 
 ################# assign applications to workspaces 
 
-  assign [class="element-desktop|element|Element|cinny|Cinny"]  $ws13
-  assign [class="obsidian"] $ws6
-  assign [class="thunderbird|Thunderbird|calibre"]   $ws11
-  assign [class="musicbee.exe|spotify"]  $ws12
-  assign [class="Psi+"] $ws14
-  assign [class="bitwarden|Bitwarden|Bitwarden-desktop"] $ws8
-  assign [class="code-oss"] $ws2
-  assign [class="anki|Anki"] $ws7
-  assign [class="jetbrains-pycharm-ce"] $ws6
-  assign [class="qBittorrent"] $ws9
   assign [class="vivaldi|Vivaldi"] $ws1
-  assign [title="protonvpn-c"] $ws5
-  assign [class="Rednotebook|rednotebook"] $ws7
-  assign [class="Clementine|clementine|cider|Cider"] $ws12
-  assign [class="Discord|discord|webcord|WebCord"] $ws5
+  assign [class="code-oss"] $ws2
+  assign [class="steam"] $ws4
   assign [class="fluent-reader"] $ws6
+  assign [class="Rednotebook|rednotebook"] $ws7
+  assign [class="Discord|discord|webcord|WebCord|vesktop"] $ws5
+  assign [class="obsidian"] $ws6
+  assign [class="anki|Anki"] $ws7
+  assign [class="bitwarden|Bitwarden|Bitwarden-desktop"] $ws8
+  assign [class="qBittorrent"] $ws9
+  assign [class="thunderbird|Thunderbird|calibre"]   $ws11
+  assign [class="element-desktop|element|Element|cinny|Cinny"]  $ws13
+  assign [class="musicbee.exe|spotify|Spotify"]  $ws12
+  assign [class="Clementine|clementine|cider|Cider"] $ws12
+  assign [class="Psi+"] $ws14
   assign [class=".protonvpn-wrapped|org.nicotine_plus.Nicotine"] $ws15
   assign [class="obs"] $wsw5
 
 ################# floating or tiled rules         
 #Personal:
 
-for_window [title="ncpamixer"] floating enable
+for_window [title="ncpamixer|pamix"] floating enable
 
 #Arcolinux defaults:
 

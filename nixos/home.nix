@@ -9,7 +9,7 @@
 
   # imports
   imports = [
-    ./emacs.nix
+    #./emacs.nix
   ];
 
 
@@ -169,6 +169,7 @@
      "100:class_g = 'mpv'"
      "100:class_g = 'gl'"
      "100:class_g = 'i3lock'"
+     "100:class_g = 'vivaldi-stable'"
    ];
    
   };
@@ -211,5 +212,6 @@
   home.sessionPath = [
   "$HOME/.local/bin"
   "/usr/local/bin/"
+  "$HOME/scripts"
   ];
 }

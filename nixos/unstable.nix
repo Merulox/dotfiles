@@ -13,5 +13,9 @@ in {
      unstable.osu-lazer-bin
      unstable.ani-cli
      unstable.vivaldi
+     unstable.r2modman
+     #unstable.animdl
+     unstable.adl
+     unstable.keymapp
   ];
 }
