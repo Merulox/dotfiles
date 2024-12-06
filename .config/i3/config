@@ -526,12 +526,12 @@ bar {
 
     # Window color settings
     # class                 border  backgr. text    indica. child_border
-    client.focused          #Cab83d #383434 #Cab83d #Cab83d #Cab83d
+    client.focused          #ffffff #383434 #Cab83d #ffffff #ffffff
     client.unfocused        #222222 #222222 #aaaaaa #222222
     client.focused_inactive #ffffff #222222 #a9a9a9 #222222
     client.placeholder      #222222 #222222 #aaaaaa #222222
     client.urgent           #d42121 #d42121 #f7f7f7 #d42121
-
+	# yellow - #Cab83d 
     client.background       #242424
 
   # #6790EB original blue focused border

@@ -16,6 +16,7 @@
   # home-manager
   programs.home-manager.enable = true;
 
+
   # fish
   programs.fish = {
    enable = true;
@@ -192,12 +193,12 @@
   };
 
   # Default applications
- # xdg.mimeApps = {
- # enable = true;
+ #  xdg.mimeApps = {
+ #  enable = true;
  # defaultApplications = {
  #  "inode/directory" = ["org.kde.dolphin.desktop"]; 
  #  };
- # };
+ #  };
 
  # Desktop files
  xdg.desktopEntries.lunar-client = {

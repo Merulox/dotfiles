@@ -5,6 +5,8 @@
 let
   aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
   nix-gaming = import (builtins.fetchTarball "https://github.com/fufexan/nix-gaming/archive/master.tar.gz");
+  baseconfig = { allowUnfree = true; };
+  unstable = import <nixos-unstable> { config = baseconfig; };
 
 in
 {
@@ -32,14 +34,17 @@ in
   # Insecure packages
   nixpkgs.config.permittedInsecurePackages = [
    "electron-24.8.6"
+   "qbittorrent-4.6.4"
+   "dotnet-runtime-6.0.36"
+   "dotnet-sdk-wrapped-6.0.428"
+   "dotnet-sdk-6.0.428"
 
   ];
 
   # Opengl hardware
-  hardware.opengl = {
+  hardware.graphics = {
     enable = true;
-    driSupport = true;
-    driSupport32Bit = true;
+    enable32Bit = true;
 
   };
   # Nvidia hardware
@@ -62,7 +67,16 @@ in
     nvidiaSettings = true;
 
     # Optionally, you may need to select the appropriate driver version for your specific GPU.
-    package = config.boot.kernelPackages.nvidiaPackages.stable;
+    #package = config.boot.kernelPackages.nvidiaPackages.stable;
+    package = unstable.linuxPackages.nvidiaPackages.production;
+   # package = config.boot.kernelPackages.nvidiaPackages.mkDriver {
+   #   version = "555.58.02";
+   #   sha256_64bit = "sha256-xctt4TPRlOJ6r5S54h5W6PT6/3Zy2R4ASNFPu8TSHKM=";
+   #   sha256_aarch64 = "sha256-xctt4TPRlOJ6r5S54h5W6PT6/3Zy2R4ASNFPu8TSHKM=";
+   #   openSha256 = "sha256-ZpuVZybW6CFN/gz9rx+UJvQ715FZnAOYfHn5jt5Z2C8=";
+   #   settingsSha256 = "sha256-ZpuVZybW6CFN/gz9rx+UJvQ715FZnAOYfHn5jt5Z2C8=";
+   #   persistencedSha256 = lib.fakeSha256;
+   # };
 
   };
 
@@ -113,18 +127,18 @@ in
   };
 
   # Pulseaudio
-  hardware.pulseaudio.enable = true;
-  hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
+  #hardware.pulseaudio.enable = true;
+  #hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
   
   # PipeWire
-  #security.rtkit.enable = true;
-  #services.pipewire = {
-  # enable = true;
-  # alsa.enable = true;
-  # alsa.support32Bit = true;
-  # pulse.enable = true;
-  # jack.enable=true;
-  #};
+  security.rtkit.enable = true;
+  services.pipewire = {
+   enable = true;
+   alsa.enable = true;
+   alsa.support32Bit = true;
+   pulse.enable = true;
+   jack.enable=true;
+  };
 
   # bluetooth 
   hardware.bluetooth.enable = true;
@@ -135,6 +149,7 @@ in
   boot.loader.efi.canTouchEfiVariables = true;
   # podman
   virtualisation.podman.enable = true; # for distrobox
+  virtualisation.docker.enable = true;
   #virtualisation.podman.rootless.enable = true;
    #Mount drive
    fileSystems."/mnt/data" =
@@ -181,6 +196,7 @@ in
     windowManager.xmonad.config = builtins.readFile /home/merulox/.config/xmonad/xmonad.hs;
     videoDrivers = ["nvidia"];
  };
+  programs.hyprland.enable = true;
   services.displayManager.sddm.enable = true;
   services.xserver.displayManager.setupCommands = 
   "
@@ -228,14 +244,22 @@ in
   };
 
   # Desktop integration portals
-   #xdg.portal.config = [ pkgs.xdg-desktop-portal pkgs.kdePackages.xdg-desktop-portal-kde ];
-    xdg.portal.enable = true;
-    xdg.portal = {
-      wlr.enable = true;
-      extraPortals = [
-        pkgs.xdg-desktop-portal-gtk
+  #xdg.portal.config = [ pkgs.xdg-desktop-portal pkgs.kdePackages.xdg-desktop-portal-kde ];
+  # xdg.portal = {
+  #   wlr.enable = true;
+  #   extraPortals = [
+  #     pkgs.xdg-desktop-portal-gtk
+  #   ];
+  # };
+  xdg.portal.enable = true;
+  xdg.portal.config = {
+    common = {
+      default = [
+  #     "gtk"
+        "kde"
       ];
     };
+  };
  
 
   # Fonts
@@ -316,7 +340,8 @@ in
 
   # japanese
   i18n.inputMethod = {
-  enabled = "fcitx5";
+  enable = true;
+  type = "fcitx5";
   fcitx5.addons = with pkgs; [
 	fcitx5-mozc
       ];
@@ -350,12 +375,12 @@ in
     #services.dunst.enable = true;
 
   # mime apps
-  xdg.mime.enable = true;
-  xdg.mime.defaultApplications = {
-    "image/png"="viewnior.desktop";
-    "image/jpeg"="viewnior.desktop";
-    "inode/directory"="org.kde.dolphin.desktop";
-  };
+  #xdg.mime.enable = true;
+  #xdg.mime.defaultApplications = {
+  #  "image/png"="viewnior.desktop";
+  #  "image/jpeg"="viewnior.desktop";
+  #  "inode/directory"="org.kde.dolphin.desktop";
+  #};
 
   # Printing
   services.printing.enable = true;
@@ -370,9 +395,9 @@ in
 
   # Open ports in the firewall.
     networking.firewall.enable = true;
-    networking.firewall.allowedTCPPorts = [ 8080 ];
+    networking.firewall.allowedTCPPorts = [ 8080 32400 3005 8324 32469 80 443 ];
     networking.firewall.allowedTCPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
-    networking.firewall.allowedUDPPorts = [ 8080 ];
+    networking.firewall.allowedUDPPorts = [ 8080 32400 1900 5353 32410 32412 32413 32414 ];
     networking.firewall.allowedUDPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
   # Or disable the firewall altogether.
   #   networking.firewall.enable = false;
@@ -439,8 +464,8 @@ in
   ncpamixer
   pavucontrol
   rednotebook
-  cinnamon.nemo
-  cinnamon.nemo-fileroller
+  nemo
+  nemo-fileroller
   kdePackages.ark
   python39Full
   libGL
@@ -461,6 +486,7 @@ in
   kdePackages.kdegraphics-thumbnailers
   kdePackages.qtimageformats
   kdePackages.konsole
+  kdePackages.kservice
   kdePackages.qtsvg
   blueman
   rxvt-unicode-unwrapped-emoji
@@ -551,7 +577,7 @@ in
   eza
   qdirstat
   audacity
-  gnome.libgnome-keyring
+  libgnome-keyring
   openvpn
   networkmanager-openvpn
   protonvpn-cli_2
@@ -611,6 +637,14 @@ in
   onedrive
   catnip #audio visualizer
   cli-visualizer
-  gdb
+  plex
+  #libgcc
+  gcc
+  floorp
+  kitty
+  libreoffice
+  syncthing
+  syncthing-tray
+  docker
   ];
 }
