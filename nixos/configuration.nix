@@ -68,7 +68,7 @@ in
 
     # Optionally, you may need to select the appropriate driver version for your specific GPU.
     #package = config.boot.kernelPackages.nvidiaPackages.stable;
-    package = unstable.linuxPackages.nvidiaPackages.production;
+    ##package = unstable.linuxPackages.nvidiaPackages.production;
    # package = config.boot.kernelPackages.nvidiaPackages.mkDriver {
    #   version = "555.58.02";
    #   sha256_64bit = "sha256-xctt4TPRlOJ6r5S54h5W6PT6/3Zy2R4ASNFPu8TSHKM=";
@@ -646,5 +646,7 @@ in
   syncthing
   syncthing-tray
   docker
+  davinci-resolve
+  proton-pass
   ];
 }

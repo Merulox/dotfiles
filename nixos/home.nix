@@ -16,6 +16,8 @@
   # home-manager
   programs.home-manager.enable = true;
 
+  #font config
+  fonts.fontconfig.enable = true;
 
   # fish
   programs.fish = {

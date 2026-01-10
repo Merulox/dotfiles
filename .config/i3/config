@@ -59,7 +59,8 @@ exec --no-startup-id psi-plus
 #exec --no-startup-id pycharm
 #exec --no-startup-id code-oss
 exec --no-startup-id anki
-exec --no-startup-id bitwarden
+#exec --no-startup-id bitwarden
+exec --no-startup-id proton-pass
 #exec --no-startup-id clementine
 #exec --no-startup-id rednotebook
 exec --no-startup-id clipmenud
@@ -72,7 +73,7 @@ exec --no-startup-id element-desktop
 exec --no-startup-id spotify
 #exec --no-startup-id WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk' 
 #exec_always --no-startup-id alacritty -e xinput map-to-output "HUION Huion Tablet stylus" $firstMonitor
-exec --no-startup-id calibre
+#exec --no-startup-id calibre
 exec --no-startup-id org.nicotine_plus.Nicotine
 #exec --no-startup-id protonvpn
 exec --no-startup-id obsidian
@@ -358,7 +359,7 @@ font pango:Terminus 14
   assign [class="Discord|discord|webcord|WebCord|vesktop"] $ws5
   assign [class="obsidian"] $ws6
   assign [class="anki|Anki"] $ws7
-  assign [class="bitwarden|Bitwarden|Bitwarden-desktop"] $ws8
+  assign [class="bitwarden|Bitwarden|Bitwarden-desktop|proton-pass"] $ws8
   assign [class="qBittorrent"] $ws9
   assign [class="thunderbird|Thunderbird|calibre"]   $ws11
   assign [class="element-desktop|element|Element|cinny|Cinny"]  $ws13
