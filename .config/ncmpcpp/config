@@ -4,6 +4,7 @@ mpd_host = "localhost"
 mpd_port = "6600"
 media_library_primary_tag = album_artist
 bind_to_key D playlist_remove
+execute_on_song_change = "~/.config/ncmpcpp/cover_obs.sh"
 
 
 

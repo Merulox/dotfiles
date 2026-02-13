@@ -16,8 +16,9 @@
   # home-manager
   programs.home-manager.enable = true;
 
+
   #font config
-  fonts.fontconfig.enable = true;
+  #fonts.fontconfig.enable = true;
 
   # fish
   programs.fish = {
@@ -195,12 +196,13 @@
   };
 
   # Default applications
- #  xdg.mimeApps = {
+   xdg.mimeApps = {
  #  enable = true;
- # defaultApplications = {
- #  "inode/directory" = ["org.kde.dolphin.desktop"]; 
- #  };
- #  };
+  defaultApplications = {
+   "inode/directory" = ["org.kde.dolphin.desktop"];
+   "image/apng" = ["feh.desktop"];
+   };
+   };
 
  # Desktop files
  xdg.desktopEntries.lunar-client = {

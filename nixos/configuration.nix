@@ -38,6 +38,7 @@ in
    "dotnet-runtime-6.0.36"
    "dotnet-sdk-wrapped-6.0.428"
    "dotnet-sdk-6.0.428"
+   "ventoy-1.1.07"
 
   ];
 
@@ -122,7 +123,7 @@ in
      username = "merulox";
     };
   };
-  port = 6000;
+  port = 6600;
   host = "localhost";
   };
 
@@ -252,19 +253,22 @@ in
   #   ];
   # };
   xdg.portal.enable = true;
-  xdg.portal.config = {
-    common = {
-      default = [
-  #     "gtk"
-        "kde"
-      ];
-    };
-  };
+  #xdg.portal.wlr.enable = true;
+  #xdg.portal.xdgOpenUsePortal = true;
+#  xdg.portal.config = {
+#    common = {
+#      default = [
+#        "gtk"
+#        "kde"
+#      ];
+#    };
+#  };
  
 
   # Fonts
   fonts.packages = with pkgs; [
   terminus_font
+  terminus_font_ttf
   carlito
   dejavu_fonts
   ipafont
@@ -273,26 +277,32 @@ in
   font-awesome
   monocraft
   open-sans
+  profont
+  hermit
   ];
 
+  fonts.fontconfig.enable = true;
   fonts.fontconfig.defaultFonts = {
     monospace = [
-      "terminus"
+      "hermit"
+      "profont"
       "DejaVu Sans Mono"
       "IPAGothic"
     ];
     sansSerif = [
-      "terminus"
+      "hermit"
+      "profont"
       "DejaVu Sans"
       "IPAPGothic"
     ];
     serif = [
-      "terminus"
+      "hermit"
+      "profont"
       "DejaVu Serif"
       "IPAPMincho"
     ];
   };
-  #  fonts.fontconfig.antialias = false; 
+  fonts.fontconfig.antialias = false; 
 
 
 
@@ -427,7 +437,7 @@ in
   #vivaldi - moved to unstable
   firefox
   alacritty
-  bitwarden
+  #bitwarden-desktop
   thunderbird
   xdg-desktop-portal
   kdePackages.xdg-desktop-portal-kde
@@ -452,6 +462,7 @@ in
   toybox
   kdePackages.kate
   gnome-icon-theme
+  tango-icon-theme
   ayu-theme-gtk
   arc-theme
   arc-kde-theme
@@ -467,7 +478,7 @@ in
   nemo
   nemo-fileroller
   kdePackages.ark
-  python39Full
+  #python39Full
   libGL
   gedit
   lxappearance
@@ -480,6 +491,7 @@ in
   libsForQt5.qtcurve
   libsForQt5.qtstyleplugins
   variety
+  kdePackages.dolphin
   kdePackages.dolphin-plugins
   kdePackages.kio-extras
   kdePackages.ffmpegthumbs
@@ -491,7 +503,7 @@ in
   blueman
   rxvt-unicode-unwrapped-emoji
   feh
-  nm-tray
+  #nm-tray
   yt-dlp
   obsidian
   nix-index
@@ -536,11 +548,11 @@ in
   #nheko
   keepassxc
   psi-plus
-  teamspeak5_client
+  teamspeak6-client
   signal-desktop
   prismlauncher
   jdk8
-  librewolf
+  #librewolf
   speedtest-cli
   spotify
   kdePackages.kde-cli-tools
@@ -580,7 +592,7 @@ in
   libgnome-keyring
   openvpn
   networkmanager-openvpn
-  protonvpn-cli_2
+  protonvpn-gui
   trackma-qt
   ffmpeg
   nicotine-plus
@@ -627,7 +639,7 @@ in
   piper
   #samba4Full # stuff for YosugaNoSora/wine
   #dolphin-emu
-  deadbeef-with-plugins
+  #deadbeef-with-plugins
   #r2modman
   #keymapp switched to unstable
   ueberzug
@@ -636,17 +648,25 @@ in
   pamix
   onedrive
   catnip #audio visualizer
-  cli-visualizer
   plex
   #libgcc
   gcc
-  floorp
+  floorp-bin
   kitty
   libreoffice
   syncthing
-  syncthing-tray
   docker
   davinci-resolve
   proton-pass
+  lmms
+  reaper
+  yams
+  rmpc
+  usbmuxd2
+  libusbmuxd
+  vital
+  zoom-us
+  gh
+  pulseeffects-legacy
   ];
 }

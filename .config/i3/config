@@ -23,12 +23,15 @@ set $secondMonitor HDMI-0
 set $mod Mod4
 
 
-#################  Xander and xinput
+#################  Xrander and xinput
 
 # current displays
 
 #exec_always --no-startup-id ~/.config/i3/scripts/xrandr-layout.sh
-exec_always --no-startup-id xrandr --output $firstMonitor --primary --mode 2560x1440 --pos 0x0 --rotate normal --output $secondMonitor --off
+#exec_always --no-startup-id xrandr --output $firstMonitor --primary --mode 2560x1440 --pos 0x0 --rotate normal --output $secondMonitor --off
+#exec_always --no-startup-id xrandr --output $firstMonitor --primary --mode 2560x1440 --pos 0x0 --rotate normal --output $secondMonitor --right-of $firstMonitor
+exec_always --no-startup-id xrandr --output $firstMonitor --primary --mode 2560x1440 --pos 0x0 --rotate normal --output $secondMonitor --mode 1360x768 --pos 2560x504 --rotate normal
+
 #exec --no-startup-id xrandr --output DP-4 --right-of HDMI-0 --auto
 #exec --no-startup-id xrandr --output HDMI-0 --rotate left
 exec_always --no-startup-id xinput set-prop 'HID compliant-mouse HID compliant-mouse' 'libinput Scroll Method Enabled' 0 0 1
@@ -78,13 +81,15 @@ exec --no-startup-id org.nicotine_plus.Nicotine
 #exec --no-startup-id protonvpn
 exec --no-startup-id obsidian
 #exec --no-startup-id io.github.hydrusnetwork.hydrus 
+exec --no-startup-id obs --startreplaybuffer --minimize-to-tray --scene Monitor
 ################# applications keyboard shortcuts  
 
 bindsym $mod+mod1+ctrl+w exec --no-startup-id artha
 bindsym $mod+mod1+k exec --no-startup-id kcalc
 bindsym $mod+mod1+p exec --no-startup-id pavucontrol
 bindsym $mod+mod1+s exec --no-startup-id systemmonitor
-bindsym $mod+mod1+m exec --no-startup-id alacritty -e ncmpcpp
+bindsym $mod+mod1+m exec --no-startup-id kitty -e rmpc
+#bindsym $mod+Return exec --no-startup-id alacritty;focus
 bindsym $mod+Return exec --no-startup-id alacritty;focus
 #bindsym $mod+x exec --no-startup-id xfce4-terminal --drop-down; focus
 bindsym $mod+Shift+Return exec --no-startup-id dolphin
@@ -347,7 +352,7 @@ bindsym $mod+mod1+shift+ctrl+Right resize grow width 100 px or 100 ppt
 # Font for window titles. Will also be used by the bar unless a different font
 # is used in the bar {} block below.
 # choose your font
-font pango:Terminus 14
+font pango:hermit 14
 
 ################# assign applications to workspaces 
 
@@ -359,7 +364,7 @@ font pango:Terminus 14
   assign [class="Discord|discord|webcord|WebCord|vesktop"] $ws5
   assign [class="obsidian"] $ws6
   assign [class="anki|Anki"] $ws7
-  assign [class="bitwarden|Bitwarden|Bitwarden-desktop|proton-pass"] $ws8
+  assign [class="bitwarden|Bitwarden|Bitwarden-desktop|Proton Pass"] $ws8
   assign [class="qBittorrent"] $ws9
   assign [class="thunderbird|Thunderbird|calibre"]   $ws11
   assign [class="element-desktop|element|Element|cinny|Cinny"]  $ws13
@@ -493,7 +498,7 @@ gaps outer 2
 bar {
     height 28
     workspace_buttons yes
-	font pango:terminus 14
+	font pango:hermit 12 
 	# position top
     strip_workspace_numbers yes
     position bottom
