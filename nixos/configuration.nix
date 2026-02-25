@@ -550,7 +550,7 @@ in
   psi-plus
   teamspeak6-client
   signal-desktop
-  prismlauncher
+  #prismlauncher -> unstable
   jdk8
   #librewolf
   speedtest-cli

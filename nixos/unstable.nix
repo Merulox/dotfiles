@@ -17,5 +17,6 @@ in {
      #unstable.animdl
      unstable.adl
      unstable.keymapp
+     unstable.prismlauncher
   ];
 }
