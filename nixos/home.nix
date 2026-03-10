@@ -4,65 +4,68 @@
 {
   home.username = "merulox";
   home.homeDirectory = "/home/merulox";
-  home.stateVersion = "23.05";
+  home.stateVersion = "24.05";
   home.packages = [ pkgs.atool pkgs.httpie];
 
   # imports
   imports = [
     #./emacs.nix
+    #/home/merulox/openclaw/flake.nix
   ];
 
 
   # home-manager
   programs.home-manager.enable = true;
 
+  # network
+  #services.network-manager-applet.enable = true;
 
   #font config
   #fonts.fontconfig.enable = true;
 
   # fish
-  programs.fish = {
-   enable = true;
-   interactiveShellInit = ''
-     set fish_greeting # Disable greeting
-   '';
-   shellInit = lib.mkAfter "set fish_prompt_pwd_dir_length 0";
-   plugins = [
-      { name = "fzf-fish"; src = pkgs.fishPlugins.fzf.src; }
-      { name = "done"; src = pkgs.fishPlugins.done.src; }
-      { name = "pure"; src = pkgs.fishPlugins.pure.src; }
-     #{ name = "tide"; src = pkgs.fishPlugins.tide.src; }
-     #{ name = "hydro"; src = pkgs.fishPlugins.hydro.src; }
-        
-   ];
-  };
+   programs.fish = {
+    enable = true;
+    interactiveShellInit = ''
+      set fish_greeting # Disable greeting
+    '';
+    shellInit = lib.mkAfter "set fish_prompt_pwd_dir_length 0";
+    plugins = [
+       { name = "fzf-fish"; src = pkgs.fishPlugins.fzf.src; }
+       { name = "done"; src = pkgs.fishPlugins.done.src; }
+       { name = "pure"; src = pkgs.fishPlugins.pure.src; }
+      #{ name = "tide"; src = pkgs.fishPlugins.tide.src; }
+      #{ name = "hydro"; src = pkgs.fishPlugins.hydro.src; }
+         
+    ];
+   };
 
   # neovim
-  programs.neovim = {
-  enable = true;
-  defaultEditor = true;
-  vimAlias = true;
-  extraConfig = ''
-    set relativenumber 
-    set number
-    nmap <Enter> o<ESC> 
-    nmap <S-Enter> O<ESC>
-    map <C-S-Tab> gT
-    map <C-Tab> gt
-  '';
-  plugins = with pkgs.vimPlugins; [
-  vim-nix
-  yankring
-  vim-lastplace
-  vim-cool
-  indentLine
-  vim-numbertoggle
-  SudoEdit-vim
-   { plugin = vim-startify;
-    config = "let g:startify_change_to_vcs_root = 0";
-    }
-   ];
-  };
+   programs.neovim = {
+   enable = true;
+   defaultEditor = true;
+   vimAlias = true;
+   extraConfig = ''
+     set relativenumber 
+     set number
+     nmap <Enter> o<ESC> 
+     nmap <S-Enter> O<ESC>
+     map <C-S-Tab> gT
+     map <C-Tab> gt
+   '';
+   plugins = with pkgs.vimPlugins; [
+   vim-nix
+   yankring
+   vim-lastplace
+   vim-cool
+   indentLine
+   vim-numbertoggle
+   SudoEdit-vim
+    { plugin = vim-startify;
+     config = "let g:startify_change_to_vcs_root = 0";
+     }
+    ];
+   };
 
 
   # Desktop Entries

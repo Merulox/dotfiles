@@ -1,10 +1,6 @@
-{ config, pkgs, ...}:
-let
-  baseconfig = { allowUnfree = true; };
-  unstable = import <nixos-unstable> { config = baseconfig; };
-in {
+{ config, pkgs, unstable, ...}:
+{
   environment.systemPackages = with pkgs; [
-     unstable.calibre
      unstable.rclone
      #unstable.floorp
      #unstable.quodlibet
@@ -18,5 +14,6 @@ in {
      unstable.adl
      unstable.keymapp
      unstable.prismlauncher
+     unstable.rmpc
   ];
 }

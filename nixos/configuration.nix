@@ -1,14 +1,10 @@
 # Edit this configuration file to define what should be installed on
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running 'nixos-help').
-{ config, pkgs, lib, ... }:
-let
-  aagl-gtk-on-nix = import (builtins.fetchTarball "https://github.com/ezKEa/aagl-gtk-on-nix/archive/main.tar.gz");
-  nix-gaming = import (builtins.fetchTarball "https://github.com/fufexan/nix-gaming/archive/master.tar.gz");
-  baseconfig = { allowUnfree = true; };
-  unstable = import <nixos-unstable> { config = baseconfig; };
+{ config, pkgs, lib, unstable, aagl-gtk-on-nix, nix-gaming, ... }:
 
-in
+
+
 {
 
 
@@ -16,7 +12,6 @@ in
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-      <home-manager/nixos>
       ./unstable.nix
       #aagl-gtk-on-nix.module
     ];
@@ -38,54 +33,25 @@ in
    "dotnet-runtime-6.0.36"
    "dotnet-sdk-wrapped-6.0.428"
    "dotnet-sdk-6.0.428"
-   "ventoy-1.1.07"
+ ];
 
-  ];
-
-  # Opengl hardware
+  # Opengl
   hardware.graphics = {
     enable = true;
-    enable32Bit = true;
-
   };
-  # Nvidia hardware
-    hardware.nvidia = {
-
-    # Modesetting is needed for most wayland compositors
+  # Nvidia
+  hardware.nvidia = {
     modesetting.enable = true;
-
-    
-    # Use the NVidia open source kernel module (not to be confused with the
-    # independent third-party "nouveau" open source driver).
-    # Support is limited to the Turing and later architectures. Full list of 
-    # supported GPUs is at: 
-    # https://github.com/NVIDIA/open-gpu-kernel-modules#compatible-gpus 
-    # Only available from driver 515.43.04+
-    # Currently alpha-quality/buggy, so false is currently the recommended setting.
-    open = true;
-
-    # Enable the nvidia settings menu
+    open = false;
     nvidiaSettings = true;
-
-    # Optionally, you may need to select the appropriate driver version for your specific GPU.
-    #package = config.boot.kernelPackages.nvidiaPackages.stable;
-    ##package = unstable.linuxPackages.nvidiaPackages.production;
-   # package = config.boot.kernelPackages.nvidiaPackages.mkDriver {
-   #   version = "555.58.02";
-   #   sha256_64bit = "sha256-xctt4TPRlOJ6r5S54h5W6PT6/3Zy2R4ASNFPu8TSHKM=";
-   #   sha256_aarch64 = "sha256-xctt4TPRlOJ6r5S54h5W6PT6/3Zy2R4ASNFPu8TSHKM=";
-   #   openSha256 = "sha256-ZpuVZybW6CFN/gz9rx+UJvQ715FZnAOYfHn5jt5Z2C8=";
-   #   settingsSha256 = "sha256-ZpuVZybW6CFN/gz9rx+UJvQ715FZnAOYfHn5jt5Z2C8=";
-   #   persistencedSha256 = lib.fakeSha256;
-   # };
-
   };
+ 
 
   # Reboot / Shutdown
   boot.kernelParams = [
     "reboot=acpi;"
-
   ];
+  boot.kernelModules = [ "uinput" ];
 
   # Nvidia drivers
   nixpkgs.config.allowUnfreePredicate = pkg:
@@ -96,6 +62,30 @@ in
       "steam-run"
     ];
 
+
+  # Openclaw
+  services.openclaw-gateway = {
+  enable = true;
+  user = "merulox";
+  group = "users";
+  createUser = false;  # you already exist
+  stateDir = "/var/lib/openclaw";
+
+  environmentFiles = [
+    "/home/merulox/.secrets/anthropic-api-key.txt"  # should contain ANTHROPIC_API_KEY=sk-...
+  ];
+
+  config = {
+    gateway = {
+      mode = "local";
+      auth.token = "pick-any-random-string-here";
+    };
+    channels.telegram = {
+      tokenFile = "/home/merulox/.secrets/telegram-bot-token";
+      allowFrom = [ 2069131667 ];  # your Telegram numeric ID from @userinfobot
+    };
+  };
+};
   # invidious
  # services.invidious = { 
  #   enable = true;
@@ -164,15 +154,25 @@ in
   hardware.opentabletdriver.enable = true;
   hardware.opentabletdriver.daemon.enable = true;
 
-  networking.hostName = "navi"; # Define your hostname.
-  # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
+  networking = {
+    hostName = "navi";
+    networkmanager.enable = true;
+    wireless.iwd.enable = false;
+
+    firewall = {
+      enable = true;
+      allowedTCPPorts = [ 80 443 ];
+    };
+  };
+  networking.nameservers = ["45.90.28.97" "45.90.30.97"];
+  services.resolved.enable = true;
+  #programs.nm-applet.enable = true;
+  #networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
   # Configure network proxy if necessary
   # networking.proxy.default = "http://user:password@proxy:port/";
   # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
 
-  # Enable networking
-  networking.networkmanager.enable = true;
 
   # Set your time zone.
   time.timeZone = "America/Toronto";
@@ -194,7 +194,7 @@ in
     windowManager.i3.enable = true; 
     windowManager.xmonad.enable = true;
     windowManager.xmonad.enableContribAndExtras = true;
-    windowManager.xmonad.config = builtins.readFile /home/merulox/.config/xmonad/xmonad.hs;
+    windowManager.xmonad.config = builtins.readFile ./xmonad.hs;
     videoDrivers = ["nvidia"];
  };
   programs.hyprland.enable = true;
@@ -219,7 +219,7 @@ in
   users.users.merulox = {
     isNormalUser = true;
     description = "merulox";
-    extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" "libvirtd" ];
+    extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" "libvirtd" "input" "plugdev" ];
     packages = with pkgs; [];
     uid = 1000;
   };
@@ -246,13 +246,12 @@ in
 
   # Desktop integration portals
   #xdg.portal.config = [ pkgs.xdg-desktop-portal pkgs.kdePackages.xdg-desktop-portal-kde ];
-  # xdg.portal = {
-  #   wlr.enable = true;
-  #   extraPortals = [
-  #     pkgs.xdg-desktop-portal-gtk
-  #   ];
-  # };
-  xdg.portal.enable = true;
+   xdg.portal = {
+    enable = true;
+    extraPortals = [
+      pkgs.xdg-desktop-portal-gtk
+    ];
+   };
   #xdg.portal.wlr.enable = true;
   #xdg.portal.xdgOpenUsePortal = true;
 #  xdg.portal.config = {
@@ -349,13 +348,12 @@ in
   programs.dconf.enable = true; # virt-manager requires dconf to remember settings
 
   # japanese
-  i18n.inputMethod = {
-  enable = true;
-  type = "fcitx5";
-  fcitx5.addons = with pkgs; [
-	fcitx5-mozc
-      ];
-  };
+ # enable = true;
+ # type = "fcitx5";
+ # fcitx5.addons = with pkgs; [
+ #       fcitx5-mozc
+ #     ];
+ # };
   # To configure fcitx in the graphical interface, create 2 groups. In the first one, have en+fr where you alternate with a keybinding. In the second, have jap. You will alternate between groups to use jap.
   
   environment.sessionVariables = {
@@ -380,9 +378,36 @@ in
     services.blueman.enable = true;    
     services.flatpak.enable = true;
     services.udisks2.enable = true;
-    services.mullvad-vpn.enable = true;
     #services.flameshot.enable = true;
     #services.dunst.enable = true;
+
+
+    # Switch controllers
+    services.joycond.enable = true;
+    services.udev.extraRules = ''
+      # Switch Joy-Con (L) - Bluetooth
+      KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0005:057E:2006.*", MODE="0660", TAG+="uaccess"
+
+      # Switch Joy-Con (R) - Bluetooth
+      KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0005:057E:2007.*", MODE="0660", TAG+="uaccess"
+
+      # Switch Pro Controller - USB
+      KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="2009", MODE="0660", TAG+="uaccess"
+      SUBSYSTEM=="usb", ATTR{idProduct}=="2009", ATTR{idVendor}=="057e", ENV{ID_INPUT_JOYSTICK}="1", TAG+="uaccess"
+
+      # Switch Pro Controller - Bluetooth
+      KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0005:057E:2009.*", MODE="0660", TAG+="uaccess"
+
+      # Switch Joy-Con Charging Grip - USB
+      KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="200e", MODE="0660", TAG+="uaccess"
+
+      # PDP Rematch wired Controller for Nintendo Switch
+      KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0184", MODE="0660", TAG+="uaccess"
+      SUBSYSTEM=="usb", ATTR{idVendor}=="0e6f", ATTR{idProduct}=="0184", ENV{ID_INPUT_JOYSTICK}="1", TAG+="uaccess"
+
+      KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
+  '';
+
 
   # mime apps
   #xdg.mime.enable = true;
@@ -404,11 +429,10 @@ in
   # services.openssh.enable = true;
 
   # Open ports in the firewall.
-    networking.firewall.enable = true;
-    networking.firewall.allowedTCPPorts = [ 8080 32400 3005 8324 32469 80 443 ];
-    networking.firewall.allowedTCPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
-    networking.firewall.allowedUDPPorts = [ 8080 32400 1900 5353 32410 32412 32413 32414 ];
-    networking.firewall.allowedUDPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
+  #  networking.firewall.allowedTCPPorts = [ 8080 32400 3005 8324 32469 80 443 ];
+  #  networking.firewall.allowedTCPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
+  #  networking.firewall.allowedUDPPorts = [ 8080 32400 1900 5353 32410 32412 32413 32414 ];
+  #  networking.firewall.allowedUDPPortRanges = [ {from = 1714; to = 1764;} ]; #kde connect
   # Or disable the firewall altogether.
   #   networking.firewall.enable = false;
 
@@ -420,14 +444,13 @@ in
   # Before changing this value read the documentation for this option
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
   system.stateVersion = "23.05"; # Did you read the comment?
-  system.copySystemConfiguration = true;
-  system.autoUpgrade.enable = true; # updates to the latest channels release
+  #system.copySystemConfiguration = true;
+  #system.autoUpgrade.enable = true; # updates to the latest channels release
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   # System Packages
   environment.systemPackages = with pkgs; [
-  neovim 
   wget
   git
   i3
@@ -475,8 +498,6 @@ in
   ncpamixer
   pavucontrol
   rednotebook
-  nemo
-  nemo-fileroller
   kdePackages.ark
   #python39Full
   libGL
@@ -523,7 +544,7 @@ in
   obs-studio
   anki-bin
   toipe
-  ventoy-full
+  # ventoy-full market as insecure, drama rn https://github.com/NixOS/nixpkgs/issues/404663
   zplug
   fish
   fishPlugins.fzf
@@ -548,7 +569,6 @@ in
   #nheko
   keepassxc
   psi-plus
-  teamspeak6-client
   signal-desktop
   #prismlauncher -> unstable
   jdk8
@@ -651,22 +671,29 @@ in
   plex
   #libgcc
   gcc
-  floorp-bin
   kitty
   libreoffice
   syncthing
   docker
   davinci-resolve
-  proton-pass
   lmms
   reaper
   yams
-  rmpc
   usbmuxd2
   libusbmuxd
   vital
   zoom-us
   gh
   pulseeffects-legacy
+  spicetify-cli
+  neovim
+  vim
+  ryubing
+  joycond
+  joycond-cemuhook
+  mesa-demos
+  antimicrox
+  dolphin-emu
+  chromium
   ];
 }
