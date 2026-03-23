@@ -275,6 +275,7 @@
   terminus_font
   terminus_font_ttf
   nerd-fonts.jetbrains-mono
+  nerd-fonts.terminess-ttf
   carlito
   dejavu_fonts
   ipafont
@@ -308,7 +309,6 @@
       "IPAPMincho"
     ];
   };
-  fonts.fontconfig.antialias = false; 
 
 
 
@@ -705,5 +705,6 @@
   ollama
   scrot
   python3
+  nerd-font-patcher
   ];
 }

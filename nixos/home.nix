@@ -170,13 +170,38 @@
   '';
   };
   
-
-
+  # Darkman
+  services.darkman = {
+  enable = true;
+  settings = {
+    lat = 46.5;
+    lng = -72.7;
+    useGeoclue = false;
+  };
+  lightModeScripts = {
+    gtk = ''
+      gsettings set org.gnome.desktop.interface color-scheme prefer-light
+      gsettings set org.gnome.desktop.interface gtk-theme "Arc"
+    '';
+    alacritty = ''
+      sed -i 's/colors: \*dark/colors: *light/' ~/.config/alacritty/alacritty.toml
+    '';
+  };
+  darkModeScripts = {
+    gtk = ''
+      gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+      gsettings set org.gnome.desktop.interface gtk-theme "Arc-Dark"
+    '';
+    alacritty = ''
+      sed -i 's/colors: \*light/colors: *dark/' ~/.config/alacritty/alacritty.toml
+    '';
+  };
+};
   # Alacritty
   programs.alacritty = {
   enable = true;
   settings = {
-     font = { normal.family = "termsyn" ; size = 14; };
+     font = { normal.family = "termsyn" ; size = 18; };
      #colors = with config.colorScheme.colors; {
      # bright = {
      #   black = "0x${base00}";
@@ -252,6 +277,47 @@
   settings.brightness.day = 0.77;
   settings.brightness.night = 0.55;
   tray = true;
+  };
+
+  # Fontconfig — termsyn fallback to JetBrains Nerd Font for missing glyphs
+  xdg.configFile."fontconfig/fonts.conf" = {
+    force = true;
+    text = ''
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+      <fontconfig>
+          <match target="font">
+              <edit name="antialias" mode="assign">
+                  <bool>true</bool>
+              </edit>
+              <edit name="hinting" mode="assign">
+                  <bool>false</bool>
+              </edit>
+              <edit name="hintstyle" mode="assign">
+                  <const>hintnone</const>
+              </edit>
+              <edit name="rgba" mode="assign">
+                  <const>none</const>
+              </edit>
+              <edit name="autohint" mode="assign">
+                  <bool>false</bool>
+              </edit>
+              <edit name="lcdfilter" mode="assign">
+                  <const>lcdnone</const>
+              </edit>
+              <edit name="dpi" mode="assign">
+                  <double>102</double>
+              </edit>
+          </match>
+          <alias>
+            <family>termsyn</family>
+            <prefer>
+              <family>Termsyn</family>
+              <family>Terminess Nerd Font Mono</family>
+            </prefer>
+          </alias>
+      </fontconfig>
+    '';
   };
 
   # Default applications
