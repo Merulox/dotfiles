@@ -15,5 +15,6 @@
      unstable.keymapp
      unstable.prismlauncher
      unstable.rmpc
+     unstable.claude-code
   ];
 }

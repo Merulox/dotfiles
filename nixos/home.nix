@@ -25,12 +25,14 @@
 
   # fish
    programs.fish = {
-    enable = true;
+    enable = false; # DISABLED
     interactiveShellInit = ''
       set fish_greeting # Disable greeting
+      fish_config theme choose "Old School"
+      fish_config prompt choose "terlar"
+      set fish_prompt_pwd_dir_length 0
     '';
-    shellInit = lib.mkAfter "set fish_prompt_pwd_dir_length 0";
-    plugins = [
+      plugins = [
        { name = "fzf-fish"; src = pkgs.fishPlugins.fzf.src; }
        { name = "done"; src = pkgs.fishPlugins.done.src; }
        { name = "pure"; src = pkgs.fishPlugins.pure.src; }
@@ -39,6 +41,56 @@
          
     ];
    };
+   # ZSH	
+  programs.zsh = {
+  enable = true;
+  autosuggestion.enable = true;
+  syntaxHighlighting.enable = true;
+  oh-my-zsh = {
+    enable = true;
+    theme = "dst";
+    plugins = [ "git" "z" "sudo" ];
+  };
+  #plugins = [
+  #  {
+  #    name = "pure";
+  #    src = pkgs.fetchFromGitHub {
+  #      owner = "sindresorhus";
+  #      repo = "pure";
+  #      rev = "v1.23.0";
+  #      sha256 = "sha256-BmQO4xqd/3QnpLUitD2obVxL0UulpboT8jGNEh4ri8k=";
+  #    };
+  #  }
+  #];
+  initContent = ''
+  # manual prompt
+    # autoload -U promptinit; promptinit
+    # prompt pure
+
+    # PURE_PROMPT_SYMBOL="%n@%m >"
+
+  # navi
+  source ~/.config/navi/navi_hook.sh 2>/dev/null
+    
+  # ctrl+arrow word skip
+  bindkey "^[[1;5C" forward-word
+  bindkey "^[[1;5D" backward-word
+
+  # Better Ctrl+L - clears screen but keeps scrollback
+  clear-screen-scrollback() {
+  echoti cup 0 0
+  printf '%*s' "$(( LINES * COLUMNS ))" ""
+  echoti cup 0 0
+  zle clear-screen
+  }
+  zle -N clear-screen-scrollback
+  bindkey '^L' clear-screen-scrollback
+
+  '';
+};
+
+
+
 
   # neovim
    programs.neovim = {
@@ -79,7 +131,11 @@
   };
 
   # fzf
-  programs.fzf.enable = true;
+  programs.fzf = {
+  enable = true;
+  enableZshIntegration = true;  # handles keybindings and completion automatically
+  };
+
 
   # zoxide
   programs.zoxide.enable = true;
@@ -120,7 +176,7 @@
   programs.alacritty = {
   enable = true;
   settings = {
-     font = { normal.family = "terminus" ; size = 14; };
+     font = { normal.family = "termsyn" ; size = 14; };
      #colors = with config.colorScheme.colors; {
      # bright = {
      #   black = "0x${base00}";

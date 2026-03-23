@@ -62,7 +62,11 @@
       "steam-run"
     ];
 
+  # Ollama
+  services.ollama.enable = true;
 
+  # ZSH
+  programs.zsh.enable = true;
   # Openclaw
   services.openclaw-gateway = {
   enable = true;
@@ -222,6 +226,7 @@
     extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" "libvirtd" "input" "plugdev" ];
     packages = with pkgs; [];
     uid = 1000;
+    shell = pkgs.zsh;
   };
   # Secrets Provider
   services.passSecretService.enable = true;
@@ -230,7 +235,7 @@
   # Trusted Users
   nix.settings.trusted-users = [ "root" "merulox" ];
   # Default Shell
-  users.defaultUserShell = pkgs.fish;
+  users.defaultUserShell = pkgs.zsh;
   # Piper
   services.ratbagd.enable = true;
 
@@ -266,8 +271,10 @@
 
   # Fonts
   fonts.packages = with pkgs; [
+  termsyn
   terminus_font
   terminus_font_ttf
+  nerd-fonts.jetbrains-mono
   carlito
   dejavu_fonts
   ipafont
@@ -306,7 +313,7 @@
 
 
   # Programs
-  programs.fish.enable = true;
+  programs.fish.enable = false;
 
   # Steam
   programs.steam = {
@@ -695,5 +702,8 @@
   antimicrox
   dolphin-emu
   chromium
+  ollama
+  scrot
+  python3
   ];
 }
