@@ -1,0 +1,15 @@
+#!/bin/bash
+tmux new-session -s calibre -d "rclone sync ~/Calibre\ Library/ proton:/home/calibre | ts"
+tmux new-session -s documents -d "rclone sync ~/documents/ proton:/home/documents | ts"
+tmux new-session -s obsidian -d "rclone sync ~/obsidian proton:/home/obsidian | ts"
+tmux new-session -s pictures -d "rclone sync ~/pictures proton:/home/pictures | ts"
+tmux new-session -s config -d "rclone sync ~/.config proton:/home/.config/ | ts"
+tmux new-session -s videos -d "rclone sync ~/videos proton:/home/videos | ts"
+tmux new-session -s scripts -d "rclone sync ~/scripts proton:/home/scripts | ts"
+tmux new-session -s musicbee -d "rclone sync ~/MusicBee proton:/home/musicbee | ts"
+tmux new-session -s musicbeeprefix -d "rclone sync ~/MusicBeePrefix proton:/home/musicbeeprefix | ts"
+tmux new-session -s media -d "rclone sync ~/media proton:/home/media | ts"
+tmux new-session -s hydrus -d "rclone sync ~/Hydrus proton:/home/hydrus | ts"
+tmux new-session -s games -d "rclone sync ~/games proton:/home/games | ts"
+tmux new-session -s share -d "rclone sync ~/.local/share proton:/home/.local/share | ts"
+

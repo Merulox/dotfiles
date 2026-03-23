@@ -16,12 +16,6 @@
       #aagl-gtk-on-nix.module
     ];
 
-  # Home-manager
-  home-manager = {
-    useGlobalPkgs = true;
-    useUserPackages = true;
-    users.merulox = import ./home.nix;
-  };
 
   # Flakes
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
@@ -457,7 +451,34 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   # System Packages
+  # Restic backups to Proton Drive via rclone
+  services.restic.backups.proton = {
+    user = "merulox";
+    repository = "rclone:proton:backups/navi";
+    passwordFile = "/home/merulox/.secrets/restic-password";
+    paths = [
+      "/etc/nixos"
+      "/home/merulox"
+    ];
+    exclude = [
+      "/home/merulox/.cache"
+      "/home/merulox/.local/share/Steam"
+      "/home/merulox/.nix-profile"
+      "/home/merulox/MusicBeePrefix"
+    ];
+    timerConfig = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    pruneOpts = [
+      "--keep-daily 7"
+      "--keep-weekly 4"
+      "--keep-monthly 6"
+    ];
+  };
+
   environment.systemPackages = with pkgs; [
+  restic
   wget
   git
   i3

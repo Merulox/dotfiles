@@ -1,0 +1,2 @@
+#!/bin/bash
+bluetoothctl connect EC:2C:73:3E:31:65
