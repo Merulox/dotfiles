@@ -45,7 +45,11 @@
   boot.kernelParams = [
     "reboot=acpi;"
   ];
-  boot.kernelModules = [ "uinput" ];
+  boot.kernelModules = [ "uinput" "v4l2loopback" ];
+  boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
+  boot.extraModprobeConfig = ''
+    options v4l2loopback devices=1 video_nr=10 card_label="OBS Virtual Camera" exclusive_caps=1
+  '';
 
   # Nvidia drivers
   nixpkgs.config.allowUnfreePredicate = pkg:
@@ -451,20 +455,20 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   # System Packages
-  # Restic backups to Proton Drive via rclone
-  services.restic.backups.proton = {
+  # Restic backups to Cloudflare R2
+  services.restic.backups.r2 = {
     user = "merulox";
-    repository = "rclone:proton:backups/navi";
+    repository = "s3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup";
     passwordFile = "/home/merulox/.secrets/restic-password";
+    environmentFile = "/home/merulox/.secrets/r2-credentials";
     paths = [
-      "/etc/nixos"
-      "/home/merulox"
+      "/home/merulox/.secrets"
+      "/home/merulox/projects"
+      "/home/merulox/.config/keepassxc"
+      "/home/merulox/.config/rclone"
     ];
     exclude = [
       "/home/merulox/.cache"
-      "/home/merulox/.local/share/Steam"
-      "/home/merulox/.nix-profile"
-      "/home/merulox/MusicBeePrefix"
     ];
     timerConfig = {
       OnCalendar = "daily";
@@ -617,7 +621,7 @@
   vscode
   bottles
   #electron-mail
-  #hydroxide - third-party open-source protonmail bridge
+  hydroxide
   lutris
   protonup-qt
   todoist-electron
@@ -726,6 +730,9 @@
   ollama
   scrot
   python3
+  nodejs
   nerd-font-patcher
+  guvcview
+  (wrapOBS { plugins = with obs-studio-plugins; [ obs-backgroundremoval ]; })
   ];
 }

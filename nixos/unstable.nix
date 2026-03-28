@@ -16,5 +16,6 @@
      unstable.prismlauncher
      unstable.rmpc
      unstable.claude-code
+     unstable.wrangler
   ];
 }
