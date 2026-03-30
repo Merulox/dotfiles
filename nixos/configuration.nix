@@ -119,6 +119,14 @@
   host = "localhost";
   };
 
+  # Daily Claude summary at 9pm
+  services.cron = {
+    enable = true;
+    systemCronJobs = [
+      "0 21 * * * merulox /home/merulox/scripts/daily-summary.py >> /home/merulox/.claude/daily-summary.log 2>&1"
+    ];
+  };
+
   # Pulseaudio
   #hardware.pulseaudio.enable = true;
   #hardware.pulseaudio.extraConfig = "load-module module-combine-sink";

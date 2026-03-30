@@ -86,6 +86,29 @@
   zle -N clear-screen-scrollback
   bindkey '^L' clear-screen-scrollback
 
+  # ── Compounding tools ────────────────────────────────────────────────────────
+
+  # checkpoint: capture session state for zero-cost re-entry
+  # usage: checkpoint "working on X, next: Y"
+  checkpoint() {
+    local note="''${*:-cwd: $PWD}"
+    local ts=$(date '+%Y-%m-%d %H:%M')
+    echo "- [$ts] $note" >> "$HOME/.session-state.md"
+    echo "Saved: $note"
+  }
+
+  # director staleness guard — warn if Track A/B state is drifting
+  _director_guard() {
+    local state="$HOME/.claude/projects/-home-merulox/memory/director_state.md"
+    if [[ -f "$state" ]]; then
+      local age=$(( ($(date +%s) - $(stat -c %Y "$state")) / 86400 ))
+      if (( age >= 3 )); then
+        echo "⚠  Director state: ''${age}d stale — run: director"
+      fi
+    fi
+  }
+  _director_guard
+
   '';
 };
 
@@ -345,4 +368,37 @@
   "/usr/local/bin/"
   "$HOME/scripts"
   ];
+
+  # Daily backup timers
+  systemd.user.services.backup-r2 = {
+    Unit.Description = "Restic backup to Cloudflare R2";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/backup-now.sh";
+    };
+  };
+  systemd.user.timers.backup-r2 = {
+    Unit.Description = "Daily Restic backup to R2";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  systemd.user.services.backup-dotfiles = {
+    Unit.Description = "Auto-commit and push dotfiles";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/backup-dotfiles.sh";
+    };
+  };
+  systemd.user.timers.backup-dotfiles = {
+    Unit.Description = "Daily dotfiles push";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
 }
