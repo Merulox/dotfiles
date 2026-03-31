@@ -344,14 +344,26 @@
     '';
   };
 
-  # Default applications
-   xdg.mimeApps = {
- #  enable = true;
-  defaultApplications = {
-   "inode/directory" = ["org.kde.dolphin.desktop"];
-   "image/apng" = ["feh.desktop"];
-   };
-   };
+
+  # MIME type defaults
+  xdg.mimeApps = {
+    enable = true;
+    defaultApplications = {
+      "image/png"                = "viewnior.desktop";
+      "image/jpeg"               = "viewnior.desktop";
+      "image/gif"                = "viewnior.desktop";
+      "image/webp"               = "viewnior.desktop";
+      "inode/directory"          = "org.kde.dolphin.desktop";
+      "video/mp4"                = "mpv.desktop";
+      "video/mkv"                = "mpv.desktop";
+      "video/x-matroska"         = "mpv.desktop";
+      "audio/mpeg"               = "mpv.desktop";
+      "application/pdf"          = "org.kde.okular.desktop";
+      "text/html"                = "brave-browser.desktop";
+      "x-scheme-handler/http"    = "brave-browser.desktop";
+      "x-scheme-handler/https"   = "brave-browser.desktop";
+    };
+  };
 
  # Desktop files
  xdg.desktopEntries.lunar-client = {

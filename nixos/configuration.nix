@@ -238,6 +238,8 @@
   services.passSecretService.enable = true;
   # Gnome Keyring
   services.gnome.gnome-keyring.enable = true;
+  # Unlock keyring on SDDM login (fixes Telegram/Chrome session persistence)
+  security.pam.services.sddm.enableGnomeKeyring = true;
   # Trusted Users
   nix.settings.trusted-users = [ "root" "merulox" ];
   # Default Shell
@@ -508,6 +510,7 @@
   xfce.thunar
   ntfs3g  
   discord
+  slack
   flameshot
   #libsForQt5.qt5ct
   kdePackages.qt6ct
