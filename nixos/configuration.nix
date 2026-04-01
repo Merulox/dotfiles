@@ -124,6 +124,8 @@
     enable = true;
     systemCronJobs = [
       "0 21 * * * merulox /home/merulox/scripts/daily-summary.py >> /home/merulox/.claude/daily-summary.log 2>&1"
+      "0 6 * * 1 merulox /home/merulox/scripts/lead-gen >> /home/merulox/projects/boreal-leads/lead-gen.log 2>&1"
+      "0 8 * * * merulox /home/merulox/scripts/lead-followup-check >> /home/merulox/projects/boreal-leads/followup.log 2>&1"
     ];
   };
 

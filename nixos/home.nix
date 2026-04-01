@@ -86,6 +86,15 @@
   zle -N clear-screen-scrollback
   bindkey '^L' clear-screen-scrollback
 
+  # ── CRM shortcut ─────────────────────────────────────────────────────────────
+  # usage: lead-status "Name" sent   (moves lead to SENT section with today's date)
+  lead-status() {
+    local name="''${1}" section="''${2}" crm="$HOME/projects/boreal-leads/crm.md"
+    local today=$(date '+%Y-%m-%d')
+    echo "- [$today] $name — (update details in crm.md)" >> "$crm"
+    echo "Added to CRM: $name — remember to move to correct section in crm.md"
+  }
+
   # ── Compounding tools ────────────────────────────────────────────────────────
 
   # checkpoint: capture session state for zero-cost re-entry
