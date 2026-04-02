@@ -118,6 +118,9 @@
   }
   _director_guard
 
+  # btw briefing — realign on every terminal open
+  [[ -t 0 ]] && btw
+
   '';
 };
 

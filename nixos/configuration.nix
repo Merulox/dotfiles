@@ -126,6 +126,16 @@
       "0 21 * * * merulox /home/merulox/scripts/daily-summary.py >> /home/merulox/.claude/daily-summary.log 2>&1"
       "0 6 * * 1 merulox /home/merulox/scripts/lead-gen >> /home/merulox/projects/boreal-leads/lead-gen.log 2>&1"
       "0 8 * * * merulox /home/merulox/scripts/lead-followup-check >> /home/merulox/projects/boreal-leads/followup.log 2>&1"
+      # Vault intelligence loop
+      "0 20 * * 0 merulox /home/merulox/scripts/drift-report >> /tmp/drift-report.log 2>&1"
+      "0 21 * * 3 merulox /home/merulox/scripts/vault-challenge >> /tmp/vault-challenge.log 2>&1"
+      "0 10 1 * * merulox /home/merulox/scripts/vault-ideas >> /tmp/vault-ideas.log 2>&1"
+      # Feedback loops
+      "30 8 * * * merulox /home/merulox/scripts/signals-updater >> /tmp/signals-updater.log 2>&1"
+      "0 6 * * 2 merulox /home/merulox/scripts/soumission-scraper >> /home/merulox/projects/boreal-leads/soumission-scraper.log 2>&1"
+      # Knowledge intake
+      "0 7 * * * merulox /home/merulox/scripts/channel-watcher >> /tmp/channel-watcher.log 2>&1"
+      "30 7 * * * merulox /home/merulox/scripts/newsletter-pipeline >> /tmp/newsletter-pipeline.log 2>&1"
     ];
   };
 
