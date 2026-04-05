@@ -118,6 +118,31 @@
   }
   _director_guard
 
+  # t: quick task capture → tasks.md
+  # usage: t buy milk              (undated)
+  #        t 2026-04-10 call X     (dated)
+  t() {
+    local tasks="$HOME/obsidian/system/tasks.md"
+    local body="''${*}"
+    if [[ -z "$body" ]]; then
+      echo "usage: t [YYYY-MM-DD] task description"
+      return 1
+    fi
+    # Detect leading date
+    if [[ "$body" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})\ (.+)$ ]]; then
+      local line="- [ ] ''${BASH_REMATCH[1]} | ''${BASH_REMATCH[2]}"
+    else
+      local line="- [ ] $body"
+    fi
+    # Insert after ## Backlog header
+    if grep -q "## Backlog" "$tasks" 2>/dev/null; then
+      sed -i "s|## Backlog|## Backlog\n$line|" "$tasks"
+    else
+      echo "$line" >> "$tasks"
+    fi
+    echo "Added: $line"
+  }
+
   # btw briefing — realign on every terminal open
   [[ -t 0 ]] && btw
 

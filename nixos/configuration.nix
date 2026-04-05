@@ -83,6 +83,7 @@
       auth.token = "pick-any-random-string-here";
     };
     channels.telegram = {
+      enabled = true;
       tokenFile = "/home/merulox/.secrets/telegram-bot-token";
       allowFrom = [ 2069131667 ];  # your Telegram numeric ID from @userinfobot
     };
@@ -130,6 +131,9 @@
       "0 20 * * 0 merulox /home/merulox/scripts/drift-report >> /tmp/drift-report.log 2>&1"
       "0 21 * * 3 merulox /home/merulox/scripts/vault-challenge >> /tmp/vault-challenge.log 2>&1"
       "0 10 1 * * merulox /home/merulox/scripts/vault-ideas >> /tmp/vault-ideas.log 2>&1"
+      # Task system
+      "1 8 * * * merulox /home/merulox/scripts/task-push >> /tmp/task-push.log 2>&1"
+      "*/15 * * * * merulox /home/merulox/scripts/task-inbox >> /tmp/task-inbox.log 2>&1"
       # Feedback loops
       "30 8 * * * merulox /home/merulox/scripts/signals-updater >> /tmp/signals-updater.log 2>&1"
       "0 6 * * 2 merulox /home/merulox/scripts/soumission-scraper >> /home/merulox/projects/boreal-leads/soumission-scraper.log 2>&1"
