@@ -450,4 +450,205 @@
     };
     Install.WantedBy = [ "timers.target" ];
   };
+
+  # Anthropic changelog watcher — checks for new features, evaluates integration impact
+  systemd.user.services.brain-watch-anthropic = {
+    Unit.Description = "Check Anthropic changelog for new features";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-watch-anthropic";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+    };
+  };
+  systemd.user.timers.brain-watch-anthropic = {
+    Unit.Description = "Daily Anthropic changelog check";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-merge-domains — weekly domain bundle deduplication
+  systemd.user.services.brain-merge-domains = {
+    Unit.Description = "Merge near-duplicate Obsidian domain bundles";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-merge-domains --auto";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+    };
+  };
+  systemd.user.timers.brain-merge-domains = {
+    Unit.Description = "Weekly domain bundle merge";
+    Timer = {
+      OnCalendar = "Sun *-*-* 04:00:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-resolve — nightly conflict resolution (processes up to 10 conflicts)
+  systemd.user.services.brain-resolve = {
+    Unit.Description = "Resolve open Obsidian vault conflicts";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-resolve --auto --limit 10";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+    };
+  };
+  systemd.user.timers.brain-resolve = {
+    Unit.Description = "Nightly conflict resolution";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-promote — weekly inbox → graph promotion
+  systemd.user.services.brain-promote = {
+    Unit.Description = "Promote high-value inbox notes to knowledge graph";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-promote --top 10";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+    };
+  };
+  systemd.user.timers.brain-promote = {
+    Unit.Description = "Weekly inbox promotion";
+    Timer = {
+      OnCalendar = "Mon *-*-* 04:30:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-loop — nightly Karpathy autoresearch (fills knowledge gaps, ingests 3 videos)
+  systemd.user.services.brain-loop = {
+    Unit.Description = "Autoresearch loop: detect gaps, ingest YouTube content";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-loop --limit 3";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      TimeoutStartSec = "900";
+    };
+  };
+  systemd.user.timers.brain-loop = {
+    Unit.Description = "Nightly autoresearch loop";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-fill — repair broken wikilinks by creating missing graph nodes
+  systemd.user.services.brain-fill = {
+    Unit.Description = "Fill missing graph nodes from broken wikilinks";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-fill";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      TimeoutStartSec = "300";
+    };
+  };
+  systemd.user.timers.brain-fill = {
+    Unit.Description = "Weekly graph topology repair";
+    Timer = {
+      OnCalendar = "Wed *-*-* 05:00:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-synthesize — auto-update synthesis-boreal.md from accumulated evidence
+  systemd.user.services.brain-synthesize = {
+    Unit.Description = "Auto-update Boreal synthesis from master-claims and dialogues";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-synthesize";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      TimeoutStartSec = "120";
+    };
+  };
+  systemd.user.timers.brain-synthesize = {
+    Unit.Description = "Weekly synthesis update";
+    Timer = {
+      OnCalendar = "Tue *-*-* 05:30:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-backlog — flag stale NOW items in backlog.md
+  systemd.user.services.brain-backlog = {
+    Unit.Description = "Scan backlog for stale NOW items and alert";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-backlog";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      TimeoutStartSec = "30";
+    };
+  };
+  systemd.user.timers.brain-backlog = {
+    Unit.Description = "Daily backlog staleness check";
+    Timer = {
+      OnCalendar = "*-*-* 09:00:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # brain-dialogue-auto — weekly autonomous dialogue on highest-leverage question
+  systemd.user.services.brain-dialogue-auto = {
+    Unit.Description = "Auto-pick and run strategic dialogue";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/brain-dialogue-auto";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      TimeoutStartSec = "600";
+    };
+  };
+  systemd.user.timers.brain-dialogue-auto = {
+    Unit.Description = "Weekly autonomous strategic dialogue";
+    Timer = {
+      OnCalendar = "Fri *-*-* 06:00:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # twitter-watch — daily scrape of curated accounts → claims + ingest queue
+  systemd.user.services.twitter-watch = {
+    Unit.Description = "Daily Twitter/X account monitoring via nitter";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/twitter-watch";
+    };
+  };
+  systemd.user.timers.twitter-watch = {
+    Unit.Description = "Daily twitter-watch timer";
+    Timer = {
+      OnCalendar = "*-*-* 08:00:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # outreach-batch — daily automated cold SMS to next 10 untouched leads
+  systemd.user.services.outreach-batch = {
+    Unit.Description = "Daily automated cold SMS outreach";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/outreach-batch --batch 10";
+    };
+  };
+  systemd.user.timers.outreach-batch = {
+    Unit.Description = "Daily outreach-batch timer";
+    Timer = {
+      OnCalendar = "Mon..Fri *-*-* 10:00:00";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
 }
