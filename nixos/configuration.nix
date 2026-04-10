@@ -63,6 +63,13 @@
   # Ollama
   services.ollama.enable = true;
 
+  # YubiKey — udev rules for device recognition (hardware not required to configure)
+  services.udev.packages = with pkgs; [ yubikey-personalization ];
+  services.pcscd.enable = true; # smartcard daemon required for YubiKey
+
+  # OpenSnitch — network monitor (Linux equivalent of Little Snitch)
+  services.opensnitch.enable = true;
+
   # ZSH
   programs.zsh.enable = true;
   # Openclaw
@@ -125,6 +132,8 @@
     enable = true;
     systemCronJobs = [
       "0 21 * * * merulox /home/merulox/scripts/daily-summary.py >> /home/merulox/.claude/daily-summary.log 2>&1"
+      # Upward push — nightly ceiling-finder, runs after daily summary
+      "30 21 * * * merulox /home/merulox/scripts/upward-push >> /tmp/upward-push.log 2>&1"
       "0 6 * * 1 merulox /home/merulox/scripts/lead-gen >> /home/merulox/projects/boreal-leads/lead-gen.log 2>&1"
       "0 8 * * * merulox /home/merulox/scripts/lead-followup-check >> /home/merulox/projects/boreal-leads/followup.log 2>&1"
       # Vault intelligence loop
@@ -186,7 +195,11 @@
 
   networking = {
     hostName = "navi";
-    networkmanager.enable = true;
+    networkmanager = {
+      enable = true;
+      # Delegate DNS to systemd-resolved so NextDNS nameservers are actually used
+      dns = "systemd-resolved";
+    };
     wireless.iwd.enable = false;
 
     firewall = {
@@ -195,7 +208,11 @@
     };
   };
   networking.nameservers = ["45.90.28.97" "45.90.30.97"];
-  services.resolved.enable = true;
+  services.resolved = {
+    enable = true;
+    # Use NextDNS as primary, fall back to nothing (no Google/Cloudflare leakage)
+    fallbackDns = [];
+  };
   #programs.nm-applet.enable = true;
   #networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
@@ -513,6 +530,12 @@
 
   environment.systemPackages = with pkgs; [
   restic
+  # Security tools
+  yubikey-manager          # YubiKey CLI management
+  yubikey-personalization  # YubiKey config tool
+  opensnitch-ui            # OpenSnitch GUI (network monitor)
+  # Voice transcription for openclaw Telegram bot
+  openai-whisper-cpp       # Whisper C++ — fast local speech-to-text
   cloudflared
   wget
   git

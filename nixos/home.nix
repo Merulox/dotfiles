@@ -5,7 +5,7 @@
   home.username = "merulox";
   home.homeDirectory = "/home/merulox";
   home.stateVersion = "24.05";
-  home.packages = [ pkgs.atool pkgs.httpie];
+  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools ];
 
   # imports
   imports = [
