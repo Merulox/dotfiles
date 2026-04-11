@@ -392,7 +392,24 @@
   };
   #type "pipewire"
   systemd.services.mpd.environment = {
-    XDG_RUNTIME_DIR = "/run/user/1000"; 
+    XDG_RUNTIME_DIR = "/run/user/1000";
+  };
+
+  # sms-inbox daemon — polls Twilio every 30s, classifies inbound replies, triggers reply-agent
+  systemd.services.sms-inbox = {
+    description = "Boréal SMS inbox poller";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      User = "merulox";
+      Group = "users";
+      ExecStart = "/home/merulox/scripts/sms-inbox --daemon";
+      Restart = "on-failure";
+      RestartSec = "15s";
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
   };
   
   # virtualisation / kvm / vm
