@@ -143,8 +143,7 @@
     echo "Added: $line"
   }
 
-  # btw briefing — realign on every terminal open
-  [[ -t 0 ]] && btw
+
 
   '';
 };

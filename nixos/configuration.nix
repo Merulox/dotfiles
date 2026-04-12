@@ -369,7 +369,7 @@
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p"; airb = "~/scripts/airb"; aird = "~/scripts/aird";}; 
+    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p"; airb = "~/scripts/airb"; aird = "~/scripts/aird"; realm = "realm-session";}; 
  
   # Cachix
     nix.settings = {
@@ -404,7 +404,8 @@
     serviceConfig = {
       User = "merulox";
       Group = "users";
-      ExecStart = "/home/merulox/scripts/sms-inbox --daemon";
+      ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/scripts/sms-inbox --daemon";
+      Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin";
       Restart = "on-failure";
       RestartSec = "15s";
       StandardOutput = "journal";
@@ -552,7 +553,7 @@
   yubikey-personalization  # YubiKey config tool
   opensnitch-ui            # OpenSnitch GUI (network monitor)
   # Voice transcription for openclaw Telegram bot
-  openai-whisper-cpp       # Whisper C++ — fast local speech-to-text
+  whisper-cpp              # Whisper C++ — fast local speech-to-text
   cloudflared
   wget
   git
