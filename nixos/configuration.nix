@@ -802,7 +802,7 @@
   chromium
   ollama
   scrot
-  python3
+  (python3.withPackages (ps: with ps; [ textual rich ]))
   nodejs
   nerd-font-patcher
   guvcview

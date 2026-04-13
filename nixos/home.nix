@@ -5,7 +5,7 @@
   home.username = "merulox";
   home.homeDirectory = "/home/merulox";
   home.stateVersion = "24.05";
-  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools ];
+  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools pkgs.khal pkgs.vdirsyncer ];
 
   # imports
   imports = [
@@ -143,6 +143,7 @@
     echo "Added: $line"
   }
 
+  alias claude-dangerous='claude --dangerously-skip-permissions'
 
 
   '';
