@@ -63,11 +63,12 @@
   #  }
   #];
   initContent = ''
-  # manual prompt
-    # autoload -U promptinit; promptinit
-    # prompt pure
-
-    # PURE_PROMPT_SYMBOL="%n@%m >"
+  # ── Always inside tmux ───────────────────────────────────────────────────────
+  # Every new terminal auto-attaches to (or creates) the "main" tmux session.
+  # This means Ctrl+G switch-client always works — no "open in new window" needed.
+  if [[ -z "$TMUX" && -z "$SSH_CONNECTION" && -z "$VSCODE_INJECTION" ]]; then
+    exec tmux new-session -A -s main
+  fi
 
   # navi
   source ~/.config/navi/navi_hook.sh 2>/dev/null
@@ -145,8 +146,35 @@
 
   alias claude-dangerous='claude --dangerously-skip-permissions'
 
+  # ── Claude session picker — Ctrl+G ──────────────────────────────────────────
+  # Always inside tmux (enforced above), so switching is always switch-client.
+  # New session: auto-named, created inline, switched to immediately.
+  _claude_session_picker() {
+    local sessions NEW chosen name ts
+    sessions=$(tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^cc-" | sed 's/^cc-//')
+    NEW="  [+ New session (auto-named)]"
+    chosen=$(printf "%s\n%s\n" "$sessions" "$NEW" \
+      | fzf --height=40% --reverse --border=rounded \
+            --color="bg:#080a0c,fg:#dde4ed,hl:#22d3ee,border:#1c2128" \
+            --header="Claude sessions | Enter=switch | Ctrl-C=cancel" \
+            --prompt="  ")
+    [[ -z "$chosen" ]] && zle redisplay && return
+    if [[ "$chosen" == *"New session"* ]]; then
+      ts=$(date +%m%d%H%M)
+      name="auto-$ts"
+      tmux new-session -d -s "cc-$name" "claude" 2>/dev/null
+      tmux switch-client -t "cc-$name"
+    else
+      name="''${chosen%% *}"
+      tmux switch-client -t "cc-$name"
+    fi
+    zle reset-prompt
+  }
+  zle -N _claude_session_picker
+  bindkey '^G' _claude_session_picker
 
   '';
+
 };
 
 
