@@ -417,13 +417,15 @@
   virtualisation.libvirtd.enable = true;
   programs.dconf.enable = true; # virt-manager requires dconf to remember settings
 
-  # japanese
- # enable = true;
- # type = "fcitx5";
- # fcitx5.addons = with pkgs; [
- #       fcitx5-mozc
- #     ];
- # };
+  # japanese / french accents input
+  i18n.inputMethod = {
+    enable = true;
+    type = "fcitx5";
+    fcitx5.addons = with pkgs; [
+      fcitx5-mozc
+      fcitx5-gtk
+    ];
+  };
   # To configure fcitx in the graphical interface, create 2 groups. In the first one, have en+fr where you alternate with a keybinding. In the second, have jap. You will alternate between groups to use jap.
   
   environment.sessionVariables = {
