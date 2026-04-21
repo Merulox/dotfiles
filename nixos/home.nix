@@ -67,7 +67,7 @@
   # Every new terminal auto-attaches to (or creates) the "main" tmux session.
   # This means Ctrl+G switch-client always works — no "open in new window" needed.
   if [[ -z "$TMUX" && -z "$SSH_CONNECTION" && -z "$VSCODE_INJECTION" ]]; then
-    exec tmux new-session -A -s main
+    exec tmux new-session
   fi
 
   # navi

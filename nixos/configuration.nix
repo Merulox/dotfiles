@@ -395,6 +395,41 @@
     XDG_RUNTIME_DIR = "/run/user/1000";
   };
 
+  # Genesis — persistent agent daemon + Telegram bridge
+  systemd.services.genesis = {
+    description = "Genesis agent daemon";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [];   # manual start: systemctl start genesis
+    serviceConfig = {
+      User = "merulox";
+      Group = "users";
+      ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/projects/genesis/daemon.py";
+      Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin:/home/merulox/scripts";
+      Restart = "on-failure";
+      RestartSec = "30s";
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
+  };
+
+  systemd.services.genesis-bridge = {
+    description = "Genesis Telegram bridge (@meruloxsgenesisbot)";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [];   # starts with genesis
+    serviceConfig = {
+      User = "merulox";
+      Group = "users";
+      ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/projects/genesis/telegram-bridge.py";
+      Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin";
+      Restart = "on-failure";
+      RestartSec = "10s";
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
+  };
+
   # sms-inbox daemon — polls Twilio every 30s, classifies inbound replies, triggers reply-agent
   systemd.services.sms-inbox = {
     description = "Boréal SMS inbox poller";
