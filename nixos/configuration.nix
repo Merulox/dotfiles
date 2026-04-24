@@ -406,7 +406,7 @@
       Group = "users";
       ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/projects/genesis/daemon.py";
       Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin:/home/merulox/scripts";
-      Restart = "on-failure";
+      Restart = "always";
       RestartSec = "30s";
       StandardOutput = "journal";
       StandardError = "journal";
