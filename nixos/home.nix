@@ -67,7 +67,8 @@
   # Every new terminal auto-attaches to (or creates) the "main" tmux session.
   # This means Ctrl+G switch-client always works — no "open in new window" needed.
   if [[ -z "$TMUX" && -z "$SSH_CONNECTION" && -z "$VSCODE_INJECTION" ]]; then
-    exec tmux new-session
+    # Attach to main session if it exists, otherwise create it
+    exec tmux attach-session -t main 2>/dev/null || exec tmux new-session -s main
   fi
 
   # navi
@@ -146,6 +147,46 @@
 
   alias claude-dangerous='claude --dangerously-skip-permissions'
 
+  # ── Full session manager — Ctrl+\ ───────────────────────────────────────────
+  # All sessions grouped by type. K inside the picker nukes orphans.
+  # Icons: ⬛ main  🤖 claude (cc-)  📁 other
+  _tmux_session_mgr() {
+    local chosen session_name ts
+    local -a lines
+
+    while IFS= read -r s; do
+      if [[ "$s" == "main" ]]; then
+        lines+=("⬛ main|main")
+      elif [[ "$s" == cc-* ]]; then
+        lines+=("🤖 ''${s#cc-}|$s")
+      else
+        lines+=("📁 $s|$s")
+      fi
+    done < <(tmux list-sessions -F "#{session_name}" 2>/dev/null | sort)
+    lines+=("✨ [new session]|__new__")
+
+    chosen=$(printf '%s\n' "''${lines[@]}" \
+      | fzf --height=50% --reverse --border=rounded \
+            --color="bg:#080a0c,fg:#dde4ed,hl:#22d3ee,border:#1c2128" \
+            --header="Sessions | K=nuke orphans | Enter=switch | Ctrl-C=cancel" \
+            --prompt="  " \
+            --delimiter='|' --with-nth=1 \
+            --bind "k:execute-silent(tmux-nuke-orphans)+reload(tmux list-sessions -F '#{session_name}' | sort | awk '{if(\$0==\"main\")print \"⬛ main|main\"; else if(\$0~/^cc-/)print \"🤖 \" substr(\$0,4) \"|\" \$0; else print \"📁 \" \$0 \"|\" \$0}' && echo '✨ [new session]|__new__')")
+    [[ -z "$chosen" ]] && zle redisplay && return
+
+    session_name="''${chosen#*|}"
+    if [[ "$session_name" == "__new__" ]]; then
+      ts=$(date +%m%d%H%M)
+      tmux new-session -d -s "cc-auto-$ts" 2>/dev/null
+      tmux switch-client -t "cc-auto-$ts"
+    else
+      tmux switch-client -t "$session_name"
+    fi
+    zle reset-prompt
+  }
+  zle -N _tmux_session_mgr
+  bindkey '^\' _tmux_session_mgr
+
   # ── Claude session picker — Ctrl+G ──────────────────────────────────────────
   # Always inside tmux (enforced above), so switching is always switch-client.
   # New session: auto-named, created inline, switched to immediately.
@@ -177,7 +218,85 @@
 
 };
 
+  programs.tmux = {
+    enable = true;
+    terminal = "tmux-256color";
+    historyLimit = 50000;
+    keyMode = "vi";
+    baseIndex = 1;
+    escapeTime = 0;
 
+    plugins = with pkgs.tmuxPlugins; [
+      {
+        plugin = resurrect;
+        extraConfig = ''
+          set -g @resurrect-capture-pane-contents 'on'
+          set -g @resurrect-strategy-vim 'session'
+          set -g @resurrect-strategy-nvim 'session'
+        '';
+      }
+      {
+        plugin = continuum;
+        extraConfig = ''
+          set -g @continuum-restore 'on'
+          set -g @continuum-save-interval '3'
+        '';
+      }
+    ];
+
+    extraConfig = ''
+      # Prefix: Ctrl-A (like screen)
+      unbind C-b
+      set -g prefix C-a
+      bind C-a send-prefix
+
+      # True color support
+      set -ga terminal-overrides ",*256col*:Tc"
+      set -ga terminal-overrides ",alacritty:Tc"
+
+      # Mouse support
+      set -g mouse on
+
+      # Split panes using | and -
+      bind | split-window -h -c "#{pane_current_path}"
+      bind - split-window -v -c "#{pane_current_path}"
+      unbind '"'
+      unbind %
+
+      # New window keeps current path
+      bind c new-window -c "#{pane_current_path}"
+
+      # Reload config
+      bind r source-file ~/.config/tmux/tmux.conf \; display "Config reloaded!"
+
+      # Pane navigation (vim-style)
+      bind h select-pane -L
+      bind j select-pane -D
+      bind k select-pane -U
+      bind l select-pane -R
+
+      # Resize panes
+      bind -r H resize-pane -L 5
+      bind -r J resize-pane -D 5
+      bind -r K resize-pane -U 5
+      bind -r L resize-pane -R 5
+
+      # Nuke orphan sessions from the session chooser
+      bind -T choose-tree K run-shell "tmux-nuke-orphans"
+
+      # Status bar
+      set -g status-position bottom
+      set -g status-style bg=colour235,fg=colour136
+      set -g status-left "#[fg=colour226,bold] #S "
+      set -g status-right "#[fg=colour136]%H:%M %d-%b "
+      set -g status-left-length 30
+      set -g window-status-current-style fg=colour226,bold
+
+      # Keybinding reference (second status row)
+      set -g status 2
+      set -g status-format[1] "#[bg=colour233,fg=colour240,align=centre] PANES: | h-split  - v-split  hjkl nav  HJKL resize  z zoom  x kill  q show#  {/} swap  Space layout  WIN: c new  w picker  n/p ±1  1-9 jump  , rename  & kill  SES: s list  \$ rename  d detach  [: copy-mode (vi keys)  ]: paste  r reload  : cmd  ? all-keys  K nuke-orphan"
+    '';
+  };
 
 
   # neovim

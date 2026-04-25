@@ -43,7 +43,8 @@
 
   # Reboot / Shutdown
   boot.kernelParams = [
-    "reboot=acpi;"
+    "reboot=acpi"
+    "usb-storage.quirks=152d:a583:u"
   ];
   boot.kernelModules = [ "uinput" "v4l2loopback" ];
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
