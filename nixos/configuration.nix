@@ -585,6 +585,7 @@
   };
 
   environment.systemPackages = with pkgs; [
+  r2modman
   restic
   # Security tools
   yubikey-manager          # YubiKey CLI management

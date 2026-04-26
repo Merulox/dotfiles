@@ -64,12 +64,14 @@
   #];
   initContent = ''
   # ── Always inside tmux ───────────────────────────────────────────────────────
-  # Every new terminal auto-attaches to (or creates) the "main" tmux session.
-  # This means Ctrl+G switch-client always works — no "open in new window" needed.
+  # Each new terminal gets its own independent tmux session.
+  # To attach to an existing session: Ctrl+\ (session picker)
   if [[ -z "$TMUX" && -z "$SSH_CONNECTION" && -z "$VSCODE_INJECTION" ]]; then
-    # Attach to main session if it exists, otherwise create it
-    exec tmux attach-session -t main 2>/dev/null || exec tmux new-session -s main
+    exec tmux new-session
   fi
+
+  # Free Ctrl+\ from SIGQUIT so zsh bindkey can use it as the session picker
+  stty quit undef
 
   # navi
   source ~/.config/navi/navi_hook.sh 2>/dev/null
