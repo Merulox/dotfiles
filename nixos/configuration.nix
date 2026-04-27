@@ -397,28 +397,15 @@
   };
 
   # Genesis — persistent agent daemon + Telegram bridge
-  systemd.services.genesis = {
-    description = "Genesis agent daemon";
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [];   # manual start: systemctl start genesis
-    serviceConfig = {
-      User = "merulox";
-      Group = "users";
-      ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/projects/genesis/daemon.py";
-      Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin:/home/merulox/scripts";
-      Restart = "always";
-      RestartSec = "30s";
-      StandardOutput = "journal";
-      StandardError = "journal";
-    };
-  };
-
   systemd.services.genesis-bridge = {
     description = "Genesis Telegram bridge (@meruloxsgenesisbot)";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    wantedBy = [];   # starts with genesis
+    wantedBy = [ "multi-user.target" ];
+    unitConfig = {
+      StartLimitIntervalSec = "300";
+      StartLimitBurst = 5;
+    };
     serviceConfig = {
       User = "merulox";
       Group = "users";
@@ -426,6 +413,27 @@
       Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin";
       Restart = "on-failure";
       RestartSec = "10s";
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
+  };
+
+  systemd.services.genesis = {
+    description = "Genesis agent daemon";
+    after = [ "network-online.target" "genesis-bridge.service" ];
+    wants = [ "network-online.target" "genesis-bridge.service" ];
+    wantedBy = [ "multi-user.target" ];
+    unitConfig = {
+      StartLimitIntervalSec = "300";
+      StartLimitBurst = 3;
+    };
+    serviceConfig = {
+      User = "merulox";
+      Group = "users";
+      ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/projects/genesis/daemon.py";
+      Environment = "PATH=${pkgs.python3}/bin:/run/current-system/sw/bin:/run/wrappers/bin:/home/merulox/scripts";
+      Restart = "on-failure";
+      RestartSec = "30s";
       StandardOutput = "journal";
       StandardError = "journal";
     };
