@@ -46,6 +46,9 @@
   enable = true;
   autosuggestion.enable = true;
   syntaxHighlighting.enable = true;
+  shellAliases = {
+    ghosttrack = "cd ~/projects/GhostTrack && .venv/bin/python3 GhostTR.py";
+  };
   oh-my-zsh = {
     enable = true;
     theme = "dst";
