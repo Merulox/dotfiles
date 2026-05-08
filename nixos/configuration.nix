@@ -363,10 +363,11 @@
 
   # Steam
   programs.steam = {
-  enable = true;
-  remotePlay.openFirewall = true; # Open ports in the firewall for Steam Remote Play
-  dedicatedServer.openFirewall = true; # Open ports in the firewall for Source Dedicated Server
+    enable = true;
+    remotePlay.openFirewall = true;
+    dedicatedServer.openFirewall = true;
   };
+  hardware.steam-hardware.enable = true; # udev rules for Steam Input (controller remapping via uinput)
 
   # Shell Aliases
   environment.shellAliases = {
@@ -803,7 +804,7 @@
   xsel
   virt-manager
   hypnotix
-  #tor-browser
+  tor-browser
   ledger-live-desktop
   #hakuneko
   protontricks
