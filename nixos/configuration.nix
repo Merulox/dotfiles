@@ -855,5 +855,6 @@
   nerd-font-patcher
   guvcview
   (wrapOBS { plugins = with obs-studio-plugins; [ obs-backgroundremoval ]; })
+  codex
   ];
 }
