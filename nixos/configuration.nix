@@ -442,10 +442,10 @@
 
   # sms-inbox daemon — polls Twilio every 30s, classifies inbound replies, triggers reply-agent
   systemd.services.sms-inbox = {
+    enable = false;
     description = "Boréal SMS inbox poller";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       User = "merulox";
       Group = "users";
@@ -856,5 +856,8 @@
   guvcview
   (wrapOBS { plugins = with obs-studio-plugins; [ obs-backgroundremoval ]; })
   codex
+  zed-editor
+  code-cursor
+  cursor-cli
   ];
 }

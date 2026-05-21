@@ -41,11 +41,13 @@
             ({ ... }: {
              nixpkgs.overlays = [
                (final: prev: {
-                 openclaw-gateway = (import nixpkgs-unstable {
+                 openclaw-gateway = ((import nixpkgs-unstable {
                    system = "x86_64-linux";
                    config.allowUnfree = true;
                    overlays = [ nix-openclaw.overlays.default ];
-                 }).openclaw-gateway;
+                 }).openclaw-gateway).override {
+  pnpmDepsHash = "sha256-4TzRIcQYOQSThIewfmkIciHumo14vVicC229SeadNxk=";
+};
                })
              ];
 })
