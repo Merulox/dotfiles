@@ -859,5 +859,6 @@
   zed-editor
   code-cursor
   cursor-cli
+  browsers
   ];
 }
