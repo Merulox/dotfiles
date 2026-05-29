@@ -860,5 +860,6 @@
   code-cursor
   cursor-cli
   browsers
+  bitwig-studio
   ];
 }
