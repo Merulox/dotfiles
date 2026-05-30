@@ -169,7 +169,18 @@
    alsa.support32Bit = true;
    pulse.enable = true;
    jack.enable=true;
+   wireplumber.enable=true;
   };
+  # bitwig
+  
+  security.pam.loginLimits = [
+    { domain = "@audio"; type = "hard"; item = "rtprio"; value = "99"; }
+    { domain = "@audio"; type = "soft"; item = "rtprio"; value = "99"; }
+    { domain = "@audio"; type = "hard"; item = "memlock"; value = "unlimited"; }
+    { domain = "@audio"; type = "soft"; item = "memlock"; value = "unlimited"; }
+  ];
+  environment.pathsToLink = [ "/share/lsp-plugins" "/lib/vst" "/lib/vst3" "/lib/clap" ];
+
 
   # bluetooth 
   hardware.bluetooth.enable = true;
@@ -267,7 +278,7 @@
   users.users.merulox = {
     isNormalUser = true;
     description = "merulox";
-    extraGroups = [ "networkmanager" "wheel" "plugdev" "docker" "libvirtd" "input" "plugdev" ];
+    extraGroups = [ "audio" "networkmanager" "wheel" "plugdev" "docker" "libvirtd" "input" "plugdev" ];
     packages = with pkgs; [];
     uid = 1000;
     shell = pkgs.zsh;
@@ -861,5 +872,7 @@
   cursor-cli
   browsers
   bitwig-studio
+  qjackctl
+  jackmix
   ];
 }
