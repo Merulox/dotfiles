@@ -408,6 +408,7 @@
     XDG_RUNTIME_DIR = "/run/user/1000";
   };
 
+  programs.nix-ld.enable = true;
   # Genesis — persistent agent daemon + Telegram bridge
   systemd.services.genesis-bridge = {
     description = "Genesis Telegram bridge (@meruloxsgenesisbot)";
