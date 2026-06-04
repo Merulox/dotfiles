@@ -75,7 +75,7 @@
   programs.zsh.enable = true;
   # Openclaw
   services.openclaw-gateway = {
-  enable = true;
+  enable = false;
   user = "merulox";
   group = "users";
   createUser = false;  # you already exist
@@ -223,7 +223,7 @@
   services.resolved = {
     enable = true;
     # Use NextDNS as primary, fall back to nothing (no Google/Cloudflare leakage)
-    fallbackDns = [];
+    settings.Resolve.FallbackDNS = [];
   };
   #programs.nm-applet.enable = true;
   #networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
@@ -278,7 +278,7 @@
   users.users.merulox = {
     isNormalUser = true;
     description = "merulox";
-    extraGroups = [ "audio" "networkmanager" "wheel" "plugdev" "docker" "libvirtd" "input" "plugdev" ];
+    extraGroups = [ "audio" "networkmanager" "wheel" "docker" "libvirtd" "input" "plugdev" ];
     packages = with pkgs; [];
     uid = 1000;
     shell = pkgs.zsh;
@@ -394,14 +394,8 @@
   # mpd
   services.mpd = {
   enable = true;
-  musicDirectory = "/mnt/data/Audio/Music";
+  settings.music_directory = "/mnt/data/Audio/Music";
   user = "merulox";
-  extraConfig = ''
-    audio_output {
-      type "pulse"
-      name "mpd"
-    }
-   '';
   };
   #type "pipewire"
   systemd.services.mpd.environment = {
@@ -629,7 +623,7 @@
   xdg-desktop-portal
   kdePackages.xdg-desktop-portal-kde
   autotiling
-  xfce.thunar
+  thunar
   ntfs3g  
   discord
   slack
@@ -659,7 +653,7 @@
   wine
   winetricks
   dracula-theme
-  neofetch
+  fastfetch
   ncpamixer
   pavucontrol
   rednotebook
@@ -674,7 +668,6 @@
   clipmenu
   emojipick
   xdotool
-  libsForQt5.qtcurve
   libsForQt5.qtstyleplugins
   variety
   kdePackages.dolphin
@@ -700,12 +693,11 @@
   arandr
   j4-dmenu-desktop
   wgnord
-  cider
   jq
   curl 
   wireguard-tools
   openresolv
-  xorg.xkill
+  xkill
   obs-studio
   anki-bin
   toipe
@@ -777,7 +769,7 @@
   libgnome-keyring
   openvpn
   networkmanager-openvpn
-  protonvpn-gui
+  proton-vpn
   trackma-qt
   ffmpeg
   nicotine-plus
@@ -799,7 +791,7 @@
   xclip
   memento
   #glibc
-  python311Packages.mpv
+  python3Packages.mpv
   koreader
   cabextract
   uget

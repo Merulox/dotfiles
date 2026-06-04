@@ -309,6 +309,8 @@
    enable = true;
    defaultEditor = true;
    vimAlias = true;
+   withRuby = false;
+   withPython3 = false;
    extraConfig = ''
      set relativenumber 
      set number
@@ -318,14 +320,14 @@
      map <C-Tab> gt
    '';
    plugins = with pkgs.vimPlugins; [
-   vim-nix
-   yankring
+   YankRing-vim
    vim-lastplace
    vim-cool
    indentLine
    vim-numbertoggle
    SudoEdit-vim
     { plugin = vim-startify;
+      type = "viml";
      config = "let g:startify_change_to_vcs_root = 0";
      }
     ];
@@ -374,12 +376,6 @@
   enable = true;
   musicDirectory = "/mnt/data/Audio/Music";
   dbFile = "~/mpd/tag_cache";
-  extraConfig = ''
-   audio_output {
-     type "pulse"
-     name "mpd"
-   }
-  '';
   };
   
   # Darkman
