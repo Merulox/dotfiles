@@ -153,7 +153,8 @@
       "0 7 * * 1,4 merulox /home/merulox/scripts/brain-rss >> /tmp/brain-rss.log 2>&1"
       "0 9 * * 0 merulox /home/merulox/scripts/ingest-queue >> /tmp/ingest-queue.log 2>&1"
       # Knowledge self-improvement loop — weekly Wed 8am
-      "0 8 * * 3 merulox /home/merulox/scripts/brain-loop >> /tmp/brain-loop.log 2>&1"
+      # Disabled by Genesis freeze audit: autonomous API/agent loop.
+      # "0 8 * * 3 merulox /home/merulox/scripts/brain-loop >> /tmp/brain-loop.log 2>&1"
     ];
   };
 
@@ -867,5 +868,7 @@
   bitwig-studio
   qjackctl
   jackmix
+  ghostty
+  wezterm
   ];
 }

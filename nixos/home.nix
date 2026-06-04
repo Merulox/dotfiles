@@ -614,7 +614,8 @@
       OnCalendar = "daily";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-merge-domains — weekly domain bundle deduplication
@@ -632,7 +633,8 @@
       OnCalendar = "Sun *-*-* 04:00:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-resolve — nightly conflict resolution (processes up to 10 conflicts)
@@ -650,7 +652,8 @@
       OnCalendar = "daily";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-promote — weekly inbox → graph promotion
@@ -668,7 +671,8 @@
       OnCalendar = "Mon *-*-* 04:30:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-loop — nightly Karpathy autoresearch (fills knowledge gaps, ingests 3 videos)
@@ -687,7 +691,8 @@
       OnCalendar = "daily";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-fill — repair broken wikilinks by creating missing graph nodes
@@ -706,7 +711,8 @@
       OnCalendar = "Wed *-*-* 05:00:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-synthesize — auto-update synthesis-boreal.md from accumulated evidence
@@ -725,7 +731,8 @@
       OnCalendar = "Tue *-*-* 05:30:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-backlog — flag stale NOW items in backlog.md
@@ -744,7 +751,8 @@
       OnCalendar = "*-*-* 09:00:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous task/status timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # brain-dialogue-auto — weekly autonomous dialogue on highest-leverage question
@@ -763,7 +771,8 @@
       OnCalendar = "Fri *-*-* 06:00:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous API/agent timer.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
   # twitter-watch — daily scrape of curated accounts → claims + ingest queue
@@ -797,6 +806,7 @@
       OnCalendar = "Mon..Fri *-*-* 10:00:00";
       Persistent = true;
     };
-    Install.WantedBy = [ "timers.target" ];
+    # Disabled by Genesis freeze audit: autonomous outbound outreach.
+    # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 }
