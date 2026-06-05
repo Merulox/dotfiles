@@ -262,6 +262,10 @@
       # Mouse support
       set -g mouse on
 
+      # Clipboard integration
+      set -g set-clipboard on
+      set -as terminal-features ',wezterm:clipboard'
+
       # Split panes using | and -
       bind | split-window -h -c "#{pane_current_path}"
       bind - split-window -v -c "#{pane_current_path}"

@@ -870,5 +870,7 @@
   jackmix
   ghostty
   wezterm
+  warp-terminal
+  zellij
   ];
 }
