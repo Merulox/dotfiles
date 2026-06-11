@@ -1,45 +1,27 @@
-# Dotfiles
+# dotfiles
 
-**A quiet, keyboard-driven NixOS environment built as an extension of thought.**
+NixOS (flake-based) config for a terminal-heavy i3 setup. i7-10700KF / RTX 2070 SUPER, 2560×1440 144Hz.
 
-These are the configuration files behind my daily machine: NixOS, XMonad,
-Emacs, dunst, i3blocks, shell utilities, connectivity helpers, and backup
-scripts.
+## Stack
 
-The aesthetic is restrained and functional. The environment should disappear
-during focused work, expose state when it matters, and make repeated operations
-available as compact commands.
+| | |
+|---|---|
+| **WM** | i3 (primary) — xmonad + hyprland also tracked |
+| **Terminal** | Alacritty — Terminess Nerd Font Mono 10pt, antialiasing off |
+| **Shell** | zsh + oh-my-zsh |
+| **Editor** | neovim (default), doom emacs |
+| **Music** | mpd + ncmpcpp, scrobbled to last.fm + listenbrainz |
+| **Compositor** | picom — blur, shadows, per-window opacity |
+| **Theme switching** | darkman — GTK + Alacritty colors swap automatically at sunset |
+| **Other** | qutebrowser, mpv, hyprland (experimental), navi |
 
-## Principles
+## Layout
 
-- Configuration should be explicit and recoverable.
-- The keyboard is the primary control surface.
-- Repeated actions should become small composable tools.
-- System state should be legible without becoming visual noise.
-- The environment should support deep work rather than perform technicality.
-- Personal infrastructure should remain understandable by one person.
+```
+nixos/          flake.nix, configuration.nix, home.nix, unstable channel
+.config/        alacritty, i3, xmonad, hyprland, ncmpcpp, mpv, qutebrowser
+i3blocks/       status bar
+scripts/        utilities
+```
 
-## Structure
-
-- `nixos/` - declarative system, home, editor, notification, and window-manager
-  configuration
-- `i3blocks/` - compact status-bar configuration
-- `scripts/` - machine-level utilities and frequently used commands
-
-## Notable Commands
-
-- `adl` - audio download workflow
-- `airb` / `aird` - AirPods and audio controls
-- `bconnect` / `dconnect` - connectivity helpers
-- `dmenu-win` - window selection
-- `dotfiles-link.sh` - dotfile linking
-- `rclone-backup.sh` - backup workflow
-
-## Recovery
-
-The repository is the durable description of the environment, but applying
-configuration remains a consequential action. Review local differences and
-machine-specific assumptions before rebuilding NixOS or replacing active
-configuration.
-
-These files are personal infrastructure, not a general-purpose distribution.
+`sudo nixos-rebuild switch` to apply. Aliased as `update`.
