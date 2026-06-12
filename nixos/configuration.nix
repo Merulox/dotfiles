@@ -872,5 +872,6 @@
   wezterm
   warp-terminal
   zellij
+  z-library-desktop
   ];
 }
