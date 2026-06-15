@@ -219,6 +219,9 @@
   zle -N _claude_session_picker
   bindkey '^G' _claude_session_picker
 
+  # API keys from secrets
+  export OPENROUTER_API_KEY=$(cat "$HOME/.secrets/openrouter-api-key.txt" 2>/dev/null)
+
   '';
 
 };

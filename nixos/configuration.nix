@@ -873,5 +873,8 @@
   warp-terminal
   zellij
   z-library-desktop
+  opencode
+  opencode-claude-auth
+  tree
   ];
 }
