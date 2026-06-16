@@ -485,6 +485,7 @@
     QT_IM_MODULE = "fcitx";
     GTK_IM_MODULE = "fcitx";
     SDL_IM_MODULE = "fcitx";
+    OPENROUTER_API_KEY = "~/.secrets/openrouter-api-key.txt";
   };
   # KDE mime apps fix
   environment.etc."/xdg/menus/plasma-applications.menu".text = builtins.readFile "${pkgs.kdePackages.plasma-workspace}/etc/xdg/menus/plasma-applications.menu";
@@ -876,5 +877,8 @@
   opencode
   opencode-claude-auth
   tree
+  openai-whisper
+  qpwgraph
+  whisperx
   ];
 }
