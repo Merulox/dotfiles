@@ -39,6 +39,7 @@
     open = false;
     nvidiaSettings = true;
   };
+  hardware.nvidia-container-toolkit.enable = true;
  
 
   # Reboot / Shutdown
@@ -62,7 +63,15 @@
     ];
 
   # Ollama
-  services.ollama.enable = true;
+  services.ollama = {
+  enable = false;
+  package = pkgs.ollama-cuda;
+    loadModels = [
+      "qwen2.5-coder:7b"
+      "qwen2.5-coder:3b"
+      # "hermes3:8b"
+    ];
+  };
 
   # YubiKey — udev rules for device recognition (hardware not required to configure)
   services.udev.packages = with pkgs; [ yubikey-personalization ];
@@ -192,7 +201,10 @@
   boot.loader.efi.canTouchEfiVariables = true;
   # podman
   virtualisation.podman.enable = true; # for distrobox
-  virtualisation.docker.enable = true;
+  virtualisation.docker = {
+  enable = true;
+  daemon.settings.feature.cdi = true;
+  };
   #virtualisation.podman.rootless.enable = true;
    #Mount drive
    fileSystems."/mnt/data" =
