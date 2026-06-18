@@ -69,7 +69,7 @@
     loadModels = [
       "qwen2.5-coder:7b"
       "qwen2.5-coder:3b"
-      # "hermes3:8b"
+      "hermes3:8b"
     ];
   };
 
@@ -203,7 +203,6 @@
   virtualisation.podman.enable = true; # for distrobox
   virtualisation.docker = {
   enable = true;
-  daemon.settings.feature.cdi = true;
   };
   #virtualisation.podman.rootless.enable = true;
    #Mount drive
@@ -892,5 +891,6 @@
   openai-whisper
   qpwgraph
   whisperx
+  mission-center
   ];
 }
