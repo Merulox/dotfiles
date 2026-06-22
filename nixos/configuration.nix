@@ -80,6 +80,10 @@
   # OpenSnitch — network monitor (Linux equivalent of Little Snitch)
   services.opensnitch.enable = true;
 
+  programs.appimage = {
+	enable = true;
+	binfmt = true;
+  };
   # ZSH
   programs.zsh.enable = true;
   # Openclaw
