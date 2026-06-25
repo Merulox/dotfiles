@@ -590,6 +590,22 @@
     Install.WantedBy = [ "timers.target" ];
   };
 
+  systemd.user.services.backup-secrets-proton = {
+    Unit.Description = "Backup .secrets bootstrap archive to Proton Drive";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/backup-secrets-proton.sh";
+    };
+  };
+  systemd.user.timers.backup-secrets-proton = {
+    Unit.Description = "Daily .secrets backup to Proton Drive";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
   systemd.user.services.backup-dotfiles = {
     Unit.Description = "Auto-commit and push dotfiles";
     Service = {

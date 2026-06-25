@@ -3,8 +3,33 @@
 # and in the NixOS manual (accessible by running 'nixos-help').
 { config, pkgs, lib, unstable, aagl-gtk-on-nix, nix-gaming, ... }:
 
+let
+  goldfish = pkgs.stdenvNoCC.mkDerivation rec {
+    pname = "goldfish";
+    version = "0.1.0";
 
+    src = pkgs.fetchurl {
+      url = "https://github.com/sameoldlab/goldfish/releases/download/v${version}/gf-x86_64-unknown-linux-gnu";
+      hash = "sha256-NmPYlHZBSPMcVZs9HQV3IEW1Pnutaj69AnuX89PaG1A=";
+    };
 
+    dontUnpack = true;
+
+    installPhase = ''
+      runHook preInstall
+      install -Dm755 "$src" "$out/bin/gf"
+      runHook postInstall
+    '';
+
+    meta = {
+      description = "IPC fuzzy file finder";
+      homepage = "https://github.com/sameoldlab/goldfish";
+      license = lib.licenses.mpl20;
+      platforms = [ "x86_64-linux" ];
+      mainProgram = "gf";
+    };
+  };
+in
 {
 
 
@@ -626,6 +651,7 @@
   # Voice transcription for openclaw Telegram bot
   whisper-cpp              # Whisper C++ — fast local speech-to-text
   cloudflared
+  goldfish
   wget
   git
   i3
@@ -732,7 +758,7 @@
   qbittorrent
   #katawa-shoujo
   opentabletdriver
-  mullvad-vpn
+  #mullvad-vpn
   shutter
   telegram-desktop
   nixos-option
@@ -837,7 +863,7 @@
   #r2modman
   #keymapp switched to unstable
   ueberzug
-  youtube-music
+  pear-desktop
   hexchat
   pamix
   onedrive
@@ -896,5 +922,6 @@
   qpwgraph
   whisperx
   mission-center
+  vicinae
   ];
 }
