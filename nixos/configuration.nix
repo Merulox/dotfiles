@@ -683,6 +683,7 @@ in
   mpv
   mpvScripts.mpris
   vlc
+  zathura
   coreutils-full
   toybox
   kdePackages.kate

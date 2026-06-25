@@ -540,6 +540,29 @@
   # MIME type defaults
   xdg.mimeApps = {
     enable = true;
+    associations.added = {
+      "application/pdf"          = [ "org.pwmt.zathura.desktop" ];
+      "audio/flac"               = [ "mpd.desktop" ];
+      "audio/mpeg"               = [ "mpd.desktop" ];
+      "audio/ogg"                = [ "mpd.desktop" ];
+      "audio/x-wav"              = [ "mpd.desktop" ];
+      "image/gif"                = [ "viewnior.desktop" ];
+      "image/jpeg"               = [ "viewnior.desktop" ];
+      "image/png"                = [ "viewnior.desktop" ];
+      "image/webp"               = [ "viewnior.desktop" ];
+      "text/html"                = [ "brave-browser.desktop" ];
+      "text/plain"               = [ "nvim.desktop" ];
+      "x-scheme-handler/http"    = [ "brave-browser.desktop" ];
+      "x-scheme-handler/https"   = [ "brave-browser.desktop" ];
+    };
+    associations.removed = {
+      "application/pdf"          = [ "wine-extension-pdf.desktop" ];
+      "image/gif"                = [ "wine-extension-gif.desktop" ];
+      "image/jpeg"               = [ "wine-extension-jfif.desktop" "wine-extension-jpe.desktop" ];
+      "image/png"                = [ "wine-extension-png.desktop" ];
+      "text/html"                = [ "wine-extension-htm.desktop" ];
+      "text/plain"               = [ "wine-extension-txt.desktop" ];
+    };
     defaultApplications = {
       "image/png"                = "viewnior.desktop";
       "image/jpeg"               = "viewnior.desktop";
@@ -549,9 +572,13 @@
       "video/mp4"                = "mpv.desktop";
       "video/mkv"                = "mpv.desktop";
       "video/x-matroska"         = "mpv.desktop";
-      "audio/mpeg"               = "mpv.desktop";
-      "application/pdf"          = "org.kde.okular.desktop";
+      "audio/flac"               = "mpd.desktop";
+      "audio/mpeg"               = "mpd.desktop";
+      "audio/ogg"                = "mpd.desktop";
+      "audio/x-wav"              = "mpd.desktop";
+      "application/pdf"          = "org.pwmt.zathura.desktop";
       "text/html"                = "brave-browser.desktop";
+      "text/plain"               = "nvim.desktop";
       "x-scheme-handler/http"    = "brave-browser.desktop";
       "x-scheme-handler/https"   = "brave-browser.desktop";
     };
