@@ -16,7 +16,7 @@
     nix-gaming.inputs.nixpkgs.follows = "nixpkgs";
     # openclaw
     nix-openclaw.url = "github:openclaw/nix-openclaw";
-    orca.url = "path:../../../pkgs/orca";
+    orca.url = "git+file:/home/merulox/pkgs/orca";
 
   };
   outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, aagl-gtk-on-nix, nix-gaming, nix-openclaw, orca, ... }:
