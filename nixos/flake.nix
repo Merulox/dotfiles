@@ -14,11 +14,12 @@
     # nix-gaming
     nix-gaming.url = "github:fufexan/nix-gaming";
     nix-gaming.inputs.nixpkgs.follows = "nixpkgs";
-    # openclaw 
+    # openclaw
     nix-openclaw.url = "github:openclaw/nix-openclaw";
+    orca.url = "path:../../../pkgs/orca";
 
   };
-  outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, aagl-gtk-on-nix, nix-gaming, nix-openclaw, ... }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, aagl-gtk-on-nix, nix-gaming, nix-openclaw, orca, ... }:
   let
     system = "x86_64-linux";
     hostname = "navi";
@@ -28,7 +29,7 @@
     nixosConfigurations = {
       "${hostname}" = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit unstable aagl-gtk-on-nix nix-gaming; };
+        specialArgs = { inherit unstable aagl-gtk-on-nix nix-gaming orca; };
         modules = [
           ./configuration.nix
           home-manager.nixosModules.home-manager
