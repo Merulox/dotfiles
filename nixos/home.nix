@@ -66,6 +66,8 @@
   #  }
   #];
   initContent = ''
+  unsetopt BEEP
+
   # ── Always inside tmux ───────────────────────────────────────────────────────
   # Each new terminal gets its own independent tmux session.
   # To attach to an existing session: Ctrl+\ (session picker)
@@ -264,6 +266,10 @@
 
       # Mouse support
       set -g mouse on
+      set -g bell-action none
+      set -g visual-bell off
+      set -g visual-activity off
+      set -g visual-silence off
 
       # Clipboard integration
       set -g set-clipboard on
@@ -364,6 +370,10 @@
   # navi
   programs.navi.enable = true;
 
+  home.file.".inputrc".text = ''
+    set bell-style none
+  '';
+
   # ncmpcpp
  # programs.ncmpcpp = {
  # enable = true;
@@ -372,10 +382,83 @@
 
   # virt-manager code snippet
   dconf.settings = {
+  "org/gnome/desktop/sound" = {
+    event-sounds = false;
+    input-feedback-sounds = false;
+  };
+  "org/gnome/desktop/wm/preferences" = {
+    audible-bell = false;
+    visual-bell = false;
+  };
   "org/virt-manager/virt-manager/connections" = {
     autoconnect = ["qemu:///system"];
     uris = ["qemu:///system"];
    };
+  };
+
+  xdg.configFile."gtk-3.0/settings.ini" = {
+    force = true;
+    text = ''
+      [Settings]
+      gtk-theme-name=Adwaita-dark
+      gtk-application-prefer-dark-theme=false
+      gtk-icon-theme-name=gnome
+      gtk-cursor-theme-name=miku-cursor-linux
+      gtk-cursor-theme-size=16
+      gtk-font-name=Noto Sans,  10
+      gtk-xft-antialias=1
+      gtk-xft-hinting=1
+      gtk-xft-hintstyle=hintmedium
+      gtk-xft-rgba=none
+      gtk-xft-dpi=109514
+      gtk-overlay-scrolling=true
+      gtk-menu-images=true
+      gtk-button-images=true
+      gtk-enable-event-sounds=false
+      gtk-enable-input-feedback-sounds=false
+    '';
+  };
+
+  xdg.configFile."gtk-4.0/settings.ini" = {
+    force = true;
+    text = ''
+      [Settings]
+      gtk-theme-name=Adwaita
+      gtk-application-prefer-dark-theme=false
+      gtk-icon-theme-name=gnome
+      gtk-cursor-theme-name=miku-cursor-linux
+      gtk-cursor-theme-size=16
+      gtk-font-name=Noto Sans,  10
+      gtk-xft-antialias=1
+      gtk-xft-hinting=1
+      gtk-xft-hintstyle=hintmedium
+      gtk-xft-rgba=none
+      gtk-xft-dpi=109514
+      gtk-overlay-scrolling=true
+      gtk-enable-event-sounds=false
+      gtk-enable-input-feedback-sounds=false
+    '';
+  };
+
+  xdg.configFile."xsettingsd/xsettingsd.conf" = {
+    force = true;
+    text = ''
+      Net/ThemeName "Adwaita-dark"
+      Gdk/UnscaledDPI 98304
+      Gdk/WindowScalingFactor 1
+      Gtk/EnableAnimations 1
+      Gtk/DecorationLayout "icon:minimize,maximize,close"
+      Gtk/PrimaryButtonWarpsSlider 0
+      Gtk/ToolbarStyle 3
+      Gtk/MenuImages 1
+      Gtk/ButtonImages 1
+      Gtk/CursorThemeSize 24
+      Gtk/CursorThemeName "breeze_cursors"
+      Net/IconThemeName "Papirus-Light"
+      Gtk/FontName "Noto Sans,  10"
+      Net/EnableEventSounds 0
+      Net/EnableInputFeedbackSounds 0
+    '';
   };
 
   # mpd

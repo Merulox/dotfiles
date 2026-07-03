@@ -73,6 +73,7 @@ in
     "usb-storage.quirks=152d:a583:u"
   ];
   boot.kernelModules = [ "uinput" "v4l2loopback" ];
+  boot.blacklistedKernelModules = [ "pcspkr" "snd_pcsp" ];
   boot.extraModulePackages = [ config.boot.kernelPackages.v4l2loopback ];
   boot.extraModprobeConfig = ''
     options v4l2loopback devices=1 video_nr=10 card_label="OBS Virtual Camera" exclusive_caps=1
@@ -302,6 +303,7 @@ in
   services.xserver.displayManager.setupCommands = 
   "
   export XDG_MENU_PREFIX=plasma-
+  xset b off
   systemctl --user import-environment XDG_MENU_PREFIX
   dbus-update-activation-environment XDG_MENU_PREFIX
   ";
