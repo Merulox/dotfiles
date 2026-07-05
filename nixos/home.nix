@@ -374,6 +374,16 @@
     set bell-style none
   '';
 
+  # rmpc
+  xdg.configFile."rmpc/config.ron" = {
+    force = true;
+    source = ./rmpc/config.ron;
+  };
+  xdg.configFile."rmpc/readable.ron" = {
+    force = true;
+    source = ./rmpc/readable.ron;
+  };
+
   # ncmpcpp
  # programs.ncmpcpp = {
  # enable = true;
