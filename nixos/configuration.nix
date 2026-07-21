@@ -228,6 +228,7 @@ in
   hardware.keyboard.zsa.enable = true;
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
+  boot.loader.systemd-boot.configurationLimit = 10;
   boot.loader.efi.canTouchEfiVariables = true;
   # podman
   virtualisation.podman.enable = true; # for distrobox
