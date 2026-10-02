@@ -68,24 +68,28 @@ Do not print or paste secret values while diagnosing the restore.
 
 ## 2. Inspect and restore Cloudflare R2
 
-Export the credential-file assignments before invoking Restic:
+Run Restic through a subshell-backed helper so R2 credentials never remain exported in the operator shell:
 
 ```bash
-set -a
-source "$HOME/.secrets/r2-credentials"
-set +a
-export RESTIC_REPOSITORY='s3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup'
-export RESTIC_PASSWORD_FILE="$HOME/.secrets/restic-password"
-restic snapshots
+r2_restic() (
+  set -a
+  source "$HOME/.secrets/r2-credentials"
+  set +a
+  export RESTIC_REPOSITORY='s3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup'
+  export RESTIC_PASSWORD_FILE="$HOME/.secrets/restic-password"
+  command restic "$@"
+)
+r2_restic snapshots
 ```
 
 There are multiple snapshot path groups in the same repository. Select a snapshot ID by its timestamp and `Paths`; do not assume that `latest` refers to the full-home snapshot.
 
-Restore the selected snapshot into staging:
+Restore the selected snapshot into staging, then remove the helper:
 
 ```bash
 mkdir -p "$HOME/recovery/r2"
-restic restore SNAPSHOT_ID --target "$HOME/recovery/r2"
+r2_restic restore SNAPSHOT_ID --target "$HOME/recovery/r2"
+unset -f r2_restic
 ```
 
 Absolute source paths appear under the staging root, for example:
@@ -99,15 +103,16 @@ Inspect those trees before copying anything onto the live filesystem.
 
 ## 3. Restore NixOS
 
-Stage the recovered configuration, compare it with any installer-generated configuration, then activate it:
+The private dotfiles checkout is the deployment authority and already includes `hardware-configuration.nix`. Compare any newer recovered `/etc/nixos` source before applying the tracked flake:
 
 ```bash
-sudo mkdir -p /etc/nixos
-sudo cp -a "$HOME/recovery/r2/etc/nixos/." /etc/nixos/
-sudo nixos-rebuild switch --flake /etc/nixos#navi
+diff -ru "$HOME/git/dotfiles/nixos" "$HOME/recovery/r2/etc/nixos" || true
+nix flake check --no-build "path:$HOME/git/dotfiles/nixos"
+sudo nixos-rebuild test --flake "$HOME/git/dotfiles/nixos#navi"
+sudo nixos-rebuild switch --flake "$HOME/git/dotfiles/nixos#navi"
 ```
 
-If `/etc/nixos` was not present in the chosen R2 snapshot, use the `nixos/` copy from this dotfiles repository as the bootstrap configuration, then reconcile it with the newer R2 copy when available.
+Do not overwrite the checkout blindly from `/etc/nixos`; reconcile intentional changes into Git, review them, and rebuild from the repository.
 
 Restore home data selectively. Preview every copy first:
 
@@ -217,11 +222,15 @@ Expected completed-oneshot state: `Result=success`, `ExecMainStatus=0`, and usua
 Verify remote artifacts, not only local unit state:
 
 ```bash
-# R2
-set -a; source "$HOME/.secrets/r2-credentials"; set +a
-export RESTIC_REPOSITORY='s3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup'
-export RESTIC_PASSWORD_FILE="$HOME/.secrets/restic-password"
-restic snapshots --latest 5
+# R2: the subshell prevents credentials from persisting afterward.
+(
+  set -a
+  source "$HOME/.secrets/r2-credentials"
+  set +a
+  export RESTIC_REPOSITORY='s3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup'
+  export RESTIC_PASSWORD_FILE="$HOME/.secrets/restic-password"
+  restic snapshots --latest 5
+)
 
 # Proton
 proton-drive filesystem list /my-files/recovery/secrets --json \

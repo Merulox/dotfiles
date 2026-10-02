@@ -1,11 +1,64 @@
 { config, pkgs, lib, ... }:
   let
+    protonDriveCli = pkgs.stdenvNoCC.mkDerivation rec {
+      pname = "proton-drive-cli";
+      version = "0.7.0";
+      src = pkgs.fetchurl {
+        url = "https://proton.me/download/drive/cli/${version}/linux-x64/proton-drive";
+        hash = "sha512-Wlr/y+wE6pJqMtEOI2wTQiJ/G21BbLeX+I+UOyxPHc9TtYl6EV8cGqnOjOkv1jfhxQvSI7BIZld2gfBYTszbxg==";
+      };
+      dontUnpack = true;
+      dontStrip = true;
+      nativeBuildInputs = [ pkgs.makeWrapper pkgs.patchelf ];
+      installPhase = ''
+        install -Dm755 "$src" "$out/bin/.proton-drive-unwrapped"
+        patchelf \
+          --set-interpreter "${pkgs.stdenv.cc.bintools.dynamicLinker}" \
+          --set-rpath "${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}" \
+          "$out/bin/.proton-drive-unwrapped"
+        makeWrapper "$out/bin/.proton-drive-unwrapped" "$out/bin/proton-drive" \
+          --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [ pkgs.libsecret pkgs.glib pkgs.glib.dev ]}"
+      '';
+    };
+    backupSecretsProton = pkgs.writeShellApplication {
+      name = "backup-secrets-proton";
+      runtimeInputs = [
+        pkgs.coreutils
+        pkgs.gnugrep
+        pkgs.gnutar
+        pkgs.libnotify
+        protonDriveCli
+      ];
+      text = builtins.readFile ./workflow/bin/backup-secrets-proton;
+    };
+    grokBot = let
+      version = "0.61.0";
+      src = pkgs.fetchurl {
+        url = "https://downloads.cursor.com/grokbot/stable/47a9d1df3a7d37aaa53d206ab2d1f9159a336223/linux/x64/Grok_Bot_${version}.AppImage";
+        hash = "sha256-6Z9+fDRr0ddH1Cxf4EtAZoc+Lu1cSangdyE6jE/HiPk=";
+      };
+      appimageContents = pkgs.appimageTools.extractType2 {
+        pname = "grok-bot";
+        inherit version src;
+      };
+    in pkgs.appimageTools.wrapType2 {
+      pname = "grok-bot";
+      inherit version src;
+      extraInstallCommands = ''
+        install -m 444 -D ${appimageContents}/grok-bot.desktop \
+          $out/share/applications/grok-bot.desktop
+        install -m 444 -D ${appimageContents}/resources/icon.png \
+          $out/share/icons/hicolor/512x512/apps/grok-bot.png
+        substituteInPlace $out/share/applications/grok-bot.desktop \
+          --replace-fail "Exec=AppRun --no-sandbox %U" "Exec=grok-bot %U"
+      '';
+    };
   in
 {
   home.username = "merulox";
   home.homeDirectory = "/home/merulox";
   home.stateVersion = "24.05";
-  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools pkgs.khal pkgs.vdirsyncer ];
+  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools pkgs.khal pkgs.vdirsyncer pkgs.urbit protonDriveCli backupSecretsProton grokBot ];
 
   # imports
   imports = [
@@ -115,18 +168,6 @@
     echo "Saved: $note"
   }
 
-  # director staleness guard — warn if Track A/B state is drifting
-  _director_guard() {
-    local state="$HOME/.claude/projects/-home-merulox/memory/director_state.md"
-    if [[ -f "$state" ]]; then
-      local age=$(( ($(date +%s) - $(stat -c %Y "$state")) / 86400 ))
-      if (( age >= 3 )); then
-        echo "⚠  Director state: ''${age}d stale — run: director"
-      fi
-    fi
-  }
-  _director_guard
-
   # t: quick task capture → tasks.md
   # usage: t buy milk              (undated)
   #        t 2026-04-10 call X     (dated)
@@ -221,8 +262,6 @@
   zle -N _claude_session_picker
   bindkey '^G' _claude_session_picker
 
-  # API keys from secrets
-  export OPENROUTER_API_KEY=$(cat "$HOME/.secrets/openrouter-api-key.txt" 2>/dev/null)
 
   '';
 
@@ -263,6 +302,7 @@
       # True color support
       set -ga terminal-overrides ",*256col*:Tc"
       set -ga terminal-overrides ",alacritty:Tc"
+      set -g allow-passthrough on
 
       # Mouse support
       set -g mouse on
@@ -318,33 +358,236 @@
 
 
   # neovim
-   programs.neovim = {
-   enable = true;
-   defaultEditor = true;
-   vimAlias = true;
-   withRuby = false;
-   withPython3 = false;
-   extraConfig = ''
-     set relativenumber 
-     set number
-     nmap <Enter> o<ESC> 
-     nmap <S-Enter> O<ESC>
-     map <C-S-Tab> gT
-     map <C-Tab> gt
-   '';
-   plugins = with pkgs.vimPlugins; [
-   YankRing-vim
-   vim-lastplace
-   vim-cool
-   indentLine
-   vim-numbertoggle
-   SudoEdit-vim
-    { plugin = vim-startify;
-      type = "viml";
-     config = "let g:startify_change_to_vcs_root = 0";
-     }
+  programs.neovim = {
+    enable = true;
+    defaultEditor = true;
+    vimAlias = true;
+    withRuby = false;
+    withPython3 = false;
+    extraPackages = with pkgs; [
+      bash-language-server
+      lua-language-server
+      nil
+      nixpkgs-fmt
+      pyright
+      ripgrep
+      stylua
+      typescript-language-server
+      vscode-langservers-extracted
     ];
-   };
+    initLua = ''
+      vim.g.mapleader = " "
+      vim.g.maplocalleader = " "
+
+      vim.opt.number = true
+      vim.opt.relativenumber = true
+      vim.opt.mouse = "a"
+      vim.opt.ignorecase = true
+      vim.opt.smartcase = true
+      vim.opt.signcolumn = "yes"
+      vim.opt.termguicolors = true
+      vim.opt.updatetime = 250
+      vim.opt.completeopt = { "menu", "menuone", "noselect" }
+      vim.opt.expandtab = true
+      vim.opt.shiftwidth = 2
+      vim.opt.tabstop = 2
+
+      vim.keymap.set("n", "<Enter>", "o<Esc>", { silent = true })
+      vim.keymap.set("n", "<S-Enter>", "O<Esc>", { silent = true })
+      vim.keymap.set("n", "<C-S-Tab>", "gT", { silent = true })
+      vim.keymap.set("n", "<C-Tab>", "gt", { silent = true })
+
+      vim.keymap.set("n", "<leader>ff", "<cmd>Telescope find_files<cr>", { desc = "Find files" })
+      vim.keymap.set("n", "<leader>fg", "<cmd>Telescope live_grep<cr>", { desc = "Live grep" })
+      vim.keymap.set("n", "<leader>fb", "<cmd>Telescope buffers<cr>", { desc = "Buffers" })
+      vim.keymap.set("n", "<leader>fh", "<cmd>Telescope help_tags<cr>", { desc = "Help tags" })
+      vim.keymap.set("n", "<leader>e", "<cmd>NvimTreeToggle<cr>", { desc = "File tree" })
+      vim.keymap.set("n", "<leader>q", vim.diagnostic.setloclist, { desc = "Diagnostics list" })
+
+      require("nvim-tree").setup({
+        view = { width = 34 },
+        renderer = { group_empty = true },
+        filters = { dotfiles = false },
+      })
+
+      require("lualine").setup({
+        options = {
+          theme = "auto",
+          component_separators = "",
+          section_separators = "",
+        },
+      })
+
+      require("telescope").setup({
+        defaults = {
+          mappings = {
+            i = {
+              ["<C-j>"] = "move_selection_next",
+              ["<C-k>"] = "move_selection_previous",
+            },
+          },
+        },
+      })
+
+      require("gitsigns").setup()
+
+      require("nvim-treesitter").setup({})
+
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = {
+          "bash",
+          "css",
+          "html",
+          "javascript",
+          "javascriptreact",
+          "json",
+          "lua",
+          "markdown",
+          "nix",
+          "python",
+          "sh",
+          "toml",
+          "typescript",
+          "typescriptreact",
+          "vim",
+          "yaml",
+        },
+        callback = function()
+          pcall(vim.treesitter.start)
+          vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+        end,
+      })
+
+      local cmp = require("cmp")
+      local luasnip = require("luasnip")
+      require("luasnip.loaders.from_vscode").lazy_load()
+
+      cmp.setup({
+        snippet = {
+          expand = function(args)
+            luasnip.lsp_expand(args.body)
+          end,
+        },
+        mapping = cmp.mapping.preset.insert({
+          ["<C-b>"] = cmp.mapping.scroll_docs(-4),
+          ["<C-f>"] = cmp.mapping.scroll_docs(4),
+          ["<C-Space>"] = cmp.mapping.complete(),
+          ["<C-e>"] = cmp.mapping.abort(),
+          ["<CR>"] = cmp.mapping.confirm({ select = true }),
+          ["<Tab>"] = cmp.mapping(function(fallback)
+            if cmp.visible() then
+              cmp.select_next_item()
+            elseif luasnip.expand_or_jumpable() then
+              luasnip.expand_or_jump()
+            else
+              fallback()
+            end
+          end, { "i", "s" }),
+          ["<S-Tab>"] = cmp.mapping(function(fallback)
+            if cmp.visible() then
+              cmp.select_prev_item()
+            elseif luasnip.jumpable(-1) then
+              luasnip.jump(-1)
+            else
+              fallback()
+            end
+          end, { "i", "s" }),
+        }),
+        sources = cmp.config.sources({
+          { name = "nvim_lsp" },
+          { name = "luasnip" },
+          { name = "path" },
+        }, {
+          { name = "buffer" },
+        }),
+      })
+
+      local capabilities = require("cmp_nvim_lsp").default_capabilities()
+
+      local servers = {
+        bashls = {},
+        cssls = {},
+        html = {},
+        jsonls = {},
+        lua_ls = {
+          settings = {
+            Lua = {
+              diagnostics = { globals = { "vim" } },
+              workspace = { checkThirdParty = false },
+            },
+          },
+        },
+        nil_ls = {},
+        pyright = {},
+        ts_ls = {},
+      }
+
+      for name, config in pairs(servers) do
+        config.capabilities = capabilities
+        vim.lsp.config(name, config)
+        vim.lsp.enable(name)
+      end
+
+      vim.api.nvim_create_autocmd("LspAttach", {
+        callback = function(event)
+          local opts = { buffer = event.buf }
+          vim.keymap.set("n", "gd", vim.lsp.buf.definition, opts)
+          vim.keymap.set("n", "gr", vim.lsp.buf.references, opts)
+          vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
+          vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
+          vim.keymap.set({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, opts)
+          vim.keymap.set("n", "<leader>f", function()
+            vim.lsp.buf.format({ async = true })
+          end, opts)
+        end,
+      })
+    '';
+    plugins = with pkgs.vimPlugins; [
+      YankRing-vim
+      vim-lastplace
+      vim-cool
+      vim-numbertoggle
+      SudoEdit-vim
+      cmp-buffer
+      cmp-nvim-lsp
+      cmp-path
+      cmp_luasnip
+      friendly-snippets
+      gitsigns-nvim
+      lualine-nvim
+      luasnip
+      nvim-cmp
+      nvim-lspconfig
+      nvim-tree-lua
+      nvim-treesitter
+      (nvim-treesitter.withPlugins (p: with p; [
+        bash
+        css
+        html
+        javascript
+        json
+        lua
+        markdown
+        markdown_inline
+        nix
+        python
+        regex
+        toml
+        tsx
+        typescript
+        vim
+        vimdoc
+        yaml
+      ]))
+      telescope-nvim
+      vim-nix
+      {
+        plugin = vim-startify;
+        type = "viml";
+        config = "let g:startify_change_to_vcs_root = 0";
+      }
+    ];
+  };
 
 
   # Desktop Entries
@@ -373,16 +616,6 @@
   home.file.".inputrc".text = ''
     set bell-style none
   '';
-
-  # rmpc
-  xdg.configFile."rmpc/config.ron" = {
-    force = true;
-    source = ./rmpc/config.ron;
-  };
-  xdg.configFile."rmpc/readable.ron" = {
-    force = true;
-    source = ./rmpc/readable.ron;
-  };
 
   # ncmpcpp
  # programs.ncmpcpp = {
@@ -473,9 +706,7 @@
 
   # mpd
   services.mpd = {
-  enable = true;
-  musicDirectory = "/mnt/data/Audio/Music";
-  dbFile = "~/mpd/tag_cache";
+  enable = false;
   };
   
   # Darkman
@@ -484,7 +715,7 @@
   settings = {
     lat = 46.5;
     lng = -72.7;
-    useGeoclue = false;
+    usegeoclue = false;
   };
   lightModeScripts = {
     gtk = ''
@@ -633,29 +864,6 @@
   # MIME type defaults
   xdg.mimeApps = {
     enable = true;
-    associations.added = {
-      "application/pdf"          = [ "org.pwmt.zathura.desktop" ];
-      "audio/flac"               = [ "mpd.desktop" ];
-      "audio/mpeg"               = [ "mpd.desktop" ];
-      "audio/ogg"                = [ "mpd.desktop" ];
-      "audio/x-wav"              = [ "mpd.desktop" ];
-      "image/gif"                = [ "viewnior.desktop" ];
-      "image/jpeg"               = [ "viewnior.desktop" ];
-      "image/png"                = [ "viewnior.desktop" ];
-      "image/webp"               = [ "viewnior.desktop" ];
-      "text/html"                = [ "brave-browser.desktop" ];
-      "text/plain"               = [ "nvim.desktop" ];
-      "x-scheme-handler/http"    = [ "brave-browser.desktop" ];
-      "x-scheme-handler/https"   = [ "brave-browser.desktop" ];
-    };
-    associations.removed = {
-      "application/pdf"          = [ "wine-extension-pdf.desktop" ];
-      "image/gif"                = [ "wine-extension-gif.desktop" ];
-      "image/jpeg"               = [ "wine-extension-jfif.desktop" "wine-extension-jpe.desktop" ];
-      "image/png"                = [ "wine-extension-png.desktop" ];
-      "text/html"                = [ "wine-extension-htm.desktop" ];
-      "text/plain"               = [ "wine-extension-txt.desktop" ];
-    };
     defaultApplications = {
       "image/png"                = "viewnior.desktop";
       "image/jpeg"               = "viewnior.desktop";
@@ -665,15 +873,13 @@
       "video/mp4"                = "mpv.desktop";
       "video/mkv"                = "mpv.desktop";
       "video/x-matroska"         = "mpv.desktop";
-      "audio/flac"               = "mpd.desktop";
-      "audio/mpeg"               = "mpd.desktop";
-      "audio/ogg"                = "mpd.desktop";
-      "audio/x-wav"              = "mpd.desktop";
-      "application/pdf"          = "org.pwmt.zathura.desktop";
+      "audio/mpeg"               = "mpv.desktop";
+      "application/pdf"          = "org.kde.okular.desktop";
       "text/html"                = "brave-browser.desktop";
-      "text/plain"               = "nvim.desktop";
       "x-scheme-handler/http"    = "brave-browser.desktop";
       "x-scheme-handler/https"   = "brave-browser.desktop";
+      "x-scheme-handler/grokbot" = "grok-bot.desktop";
+      "x-scheme-handler/sand"    = "grok-bot.desktop";
     };
   };
 
@@ -714,7 +920,8 @@
     Unit.Description = "Backup .secrets bootstrap archive to Proton Drive";
     Service = {
       Type = "oneshot";
-      ExecStart = "/home/merulox/scripts/backup-secrets-proton.sh";
+      Environment = [ "PROTON_DRIVE_BIN=${protonDriveCli}/bin/proton-drive" ];
+      ExecStart = "${backupSecretsProton}/bin/backup-secrets-proton";
     };
   };
   systemd.user.timers.backup-secrets-proton = {
@@ -838,6 +1045,31 @@
     # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
 
+  # Receipt-grounded autonomous SOL/USDC canary — fixed bankroll, no auto-replenishment
+  systemd.user.services.agent-economy-live-canary = {
+    Unit.Description = "Bounded OMP research and isolated Solana economic canary";
+    Service = {
+      Type = "oneshot";
+      WorkingDirectory = "/home/merulox/projects/agent-economy-experiment/live_canary";
+      ExecStart = "/run/current-system/sw/bin/python3 /home/merulox/projects/agent-economy-experiment/live_canary/canary.py cycle";
+      Environment = "PATH=/home/merulox/.local/bin:/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      TimeoutStartSec = "600";
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+    };
+  };
+  systemd.user.timers.agent-economy-live-canary = {
+    Unit.Description = "Run the autonomous SOL/USDC canary every 15 minutes";
+    Timer = {
+      OnBootSec = "2min";
+      OnUnitActiveSec = "15min";
+      AccuracySec = "30s";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
   # brain-fill — repair broken wikilinks by creating missing graph nodes
   systemd.user.services.brain-fill = {
     Unit.Description = "Fill missing graph nodes from broken wikilinks";
@@ -952,4 +1184,68 @@
     # Disabled by Genesis freeze audit: autonomous outbound outreach.
     # Re-enable with: Install.WantedBy = [ "timers.target" ];
   };
+  # SYNTRA CJ qualification reply watcher — narrow Gmail thread → Telegram resume signal
+  systemd.user.services.syntra-cj-email-watch = {
+    Unit = {
+      Description = "Watch the CJ supplier-qualification email thread";
+      After = [ "network-online.target" ];
+      Wants = [ "network-online.target" ];
+    };
+    Service = {
+      Type = "oneshot";
+      ExecStart = "/home/merulox/scripts/syntra-cj-email-watch";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+    };
+  };
+  systemd.user.timers.syntra-cj-email-watch = {
+    Unit.Description = "Poll the CJ supplier-qualification email thread";
+    Timer = {
+      OnBootSec = "2m";
+      OnUnitActiveSec = "2m";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+
+  # Genesis voice — local microphone/wake boundary, Realtime speech, proactive scheduler
+  systemd.user.services.genesis-voice = {
+    Unit = {
+      Description = "Genesis ambient voice runtime (local wake gate + Realtime speech + bounded OMP)";
+      After = [ "network-online.target" "pipewire.service" "wireplumber.service" ];
+      Wants = [ "network-online.target" ];
+    };
+    Service = {
+      Type = "simple";
+      ExecStart = "/home/merulox/scripts/genesis-voice";
+      Environment = "PATH=/home/merulox/scripts:/run/current-system/sw/bin:/home/merulox/.nix-profile/bin";
+      Restart = "on-failure";
+      RestartSec = "5";
+      TimeoutStopSec = "10";
+      UMask = "0077";
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
+
+  # Keep the shared phone tmux workspace available whenever the lingering user manager starts.
+  systemd.user.services.phone-tmux = {
+    Unit.Description = "Persistent phone tmux workspace";
+    Service = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "phone-tmux-start" ''
+        set -eu
+        socket_dir=/run/user/1000/tmux-1000
+        ${pkgs.coreutils}/bin/mkdir -p "$socket_dir"
+        ${pkgs.coreutils}/bin/chmod 700 "$socket_dir"
+        socket="$socket_dir/default"
+        ${pkgs.tmux}/bin/tmux -S "$socket" new-session -d -s phone "${pkgs.zsh}/bin/zsh -l" 2>/dev/null \
+          || ${pkgs.tmux}/bin/tmux -S "$socket" has-session -t phone
+      '';
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
+
 }

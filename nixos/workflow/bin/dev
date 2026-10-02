@@ -1,0 +1,1512 @@
+#!/usr/bin/env python3
+"""Terminal-first multi-project development workflow (Python stdlib only)."""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+CONTRACT_FILES = ("CONTEXT.md", "TASKS.md", "DECISIONS.md", "RECOVERY.md", "RECENT_CHANGES.md")
+ROOT_FILES = ("AGENTS.md", "PROJECT.md")
+REALM_SESSION = "realm-session"
+SESSION_WORKSPACE = "session-workspace"
+SLACK_API_BASE = "https://slack.com/api"
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+SLACK_CONVERSATION_ID_RE = re.compile(r"^[CGD][A-Z0-9]+$")
+SLACK_CHANNEL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
+
+
+class DevError(RuntimeError):
+    pass
+
+
+class SlackAPIError(DevError):
+    def __init__(self, method: str, error: str):
+        self.method = method
+        self.error = error
+        super().__init__(f"Slack API {method} failed: {error}")
+
+
+def timestamp() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def expanded_path(value: str | os.PathLike[str]) -> Path:
+    return Path(os.path.expandvars(os.fspath(value))).expanduser()
+
+
+
+def command_location(command: str, override_name: str) -> str | None:
+    configured = os.environ.get(override_name, "").strip() or command
+    return shutil.which(configured)
+
+
+def lifecycle_command(command: str, override_name: str) -> str:
+    configured = os.environ.get(override_name, "").strip() or command
+    return command_location(command, override_name) or configured
+
+
+def realm_session_command() -> str:
+    return lifecycle_command(REALM_SESSION, "DEV_REALM_SESSION")
+
+
+def session_workspace_command() -> str:
+    return lifecycle_command(SESSION_WORKSPACE, "DEV_SESSION_WORKSPACE")
+
+
+def config_path() -> Path:
+    return expanded_path(os.environ.get("DEV_WORKFLOW_CONFIG", "~/.config/dev-workflow/projects.toml"))
+
+
+def config_overlay_path() -> Path:
+    explicit = os.environ.get("DEV_WORKFLOW_CONFIG_LOCAL")
+    if explicit:
+        return expanded_path(explicit)
+    base = config_path()
+    return base.with_name(f"{base.stem}.local{base.suffix}")
+
+
+def runtime_dir() -> Path:
+    return expanded_path(os.environ.get("DEV_WORKFLOW_STATE", "~/.local/state/dev-workflow"))
+
+
+def ensure_private_dir(path: Path) -> Path:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.is_symlink() or not path.is_dir():
+        raise DevError(f"private runtime path is not a directory: {path}")
+    try:
+        path.chmod(0o700)
+    except OSError as exc:
+        raise DevError(f"cannot secure runtime directory {path}") from exc
+    return path
+
+
+def private_fd(path: Path, flags: int, mode: int = 0o600) -> int:
+    ensure_private_dir(path.parent)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags | nofollow | cloexec, mode)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise DevError(f"private runtime file is not regular: {path}")
+        if info.st_uid != os.geteuid():
+            raise DevError(f"private runtime file has wrong owner: {path}")
+        os.fchmod(fd, mode)
+        return fd
+    except Exception:
+        if "fd" in locals():
+            os.close(fd)
+        raise
+
+
+@contextmanager
+def exclusive_file_lock(path: Path) -> Iterator[int]:
+    fd = private_fd(path, os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield fd
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
+    if mode == 0o600 or path.parent == runtime_dir():
+        ensure_private_dir(path.parent)
+        mode = 0o600
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    fd = private_fd(temp, flags, mode) if mode == 0o600 else os.open(temp, flags, mode or 0o666)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", closefd=False) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+        if mode is not None:
+            path.chmod(mode)
+    finally:
+        os.close(fd)
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def append_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+
+def write_all(fd: int, data: bytes) -> None:
+    remaining = memoryview(data)
+    while remaining:
+        written = os.write(fd, remaining)
+        if written <= 0:
+            raise OSError("short write while persisting runtime ledger")
+        remaining = remaining[written:]
+
+def append_jsonl(path: Path, value: dict[str, Any]) -> None:
+    fd = private_fd(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        write_all(fd, (json.dumps(value, sort_keys=True, ensure_ascii=False) + "\n").encode())
+        os.fsync(fd)
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    fd = private_fd(path, os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            data = handle.read()
+        lines = data.splitlines(keepends=True)
+        values: list[dict[str, Any]] = []
+        offset = 0
+        for index, raw_line in enumerate(lines):
+            if not raw_line.strip():
+                offset += len(raw_line)
+                continue
+            complete = raw_line.endswith((b"\n", b"\r"))
+            try:
+                line = raw_line.decode("utf-8")
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ValueError("record is not an object")
+                if index == len(lines) - 1 and not complete:
+                    os.lseek(fd, 0, os.SEEK_END)
+                    write_all(fd, b"\n")
+                    os.fsync(fd)
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                is_torn_tail = index == len(lines) - 1 and not complete
+                if not is_torn_tail:
+                    raise DevError(f"invalid JSONL in {path} at line {index + 1}: {exc}") from exc
+                quarantine = path.with_name(f"{path.name}.torn-{uuid.uuid4().hex}.json")
+                quarantine_fd = private_fd(quarantine, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+                try:
+                    write_all(quarantine_fd, raw_line)
+                    os.fsync(quarantine_fd)
+                finally:
+                    os.close(quarantine_fd)
+                os.ftruncate(fd, offset)
+                os.fsync(fd)
+                break
+            values.append(value)
+            offset += len(raw_line)
+        return values
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def read_toml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise DevError(f"cannot read config {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DevError(f"invalid config {path}")
+    return data
+
+
+def merge_config(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_config(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config() -> dict[str, Any]:
+    return merge_config(read_toml(config_path()), read_toml(config_overlay_path()))
+
+
+
+def project_records(config: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    config = config if config is not None else load_config()
+    raw = config.get("projects", {})
+    records: dict[str, dict[str, Any]] = {}
+    if isinstance(raw, dict):
+        for project_id, value in raw.items():
+            if isinstance(value, str):
+                records[str(project_id)] = {"path": value}
+            elif isinstance(value, dict):
+                records[str(project_id)] = dict(value)
+    elif isinstance(raw, list):
+        for value in raw:
+            if isinstance(value, dict) and value.get("id"):
+                records[str(value["id"])] = dict(value)
+    legacy = config.get("project", [])
+    if isinstance(legacy, list):
+        for value in legacy:
+            if isinstance(value, dict) and value.get("id"):
+                records.setdefault(str(value["id"]), dict(value))
+    for project_id, record in records.items():
+        if not ID_RE.fullmatch(project_id):
+            raise DevError(f"invalid project id in config: {project_id!r}")
+        if not record.get("path"):
+            raise DevError(f"project {project_id!r} has no path")
+        if not isinstance(record["path"], (str, os.PathLike)):
+            raise DevError(f"project {project_id!r} path must be a string")
+    return records
+
+
+def normalize_slack_channel(value: str, label: str) -> str:
+    channel = str(value)
+    if SLACK_CONVERSATION_ID_RE.fullmatch(channel) or SLACK_CHANNEL_NAME_RE.fullmatch(channel):
+        return channel
+    raise DevError(
+        f"{label} must be a Slack conversation ID or a lowercase channel name "
+        "containing only letters, digits, underscores, and hyphens"
+    )
+
+
+def implicit_project_channel(project_id: str) -> str:
+    slug = re.sub(r"[-_]+", "-", project_id.lower())
+    return normalize_slack_channel(f"proj-{slug}", f"implicit Slack channel for project {project_id!r}")
+
+
+def normalize_project(project_id: str, record: dict[str, Any]) -> dict[str, Any]:
+    path = expanded_path(record["path"]).resolve()
+    aliases = record.get("aliases", [])
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    if not isinstance(aliases, list):
+        raise DevError(f"project {project_id!r} aliases must be a list or string")
+    configured_channel = record.get("channel", record.get("slack_channel"))
+    channel = (
+        implicit_project_channel(project_id)
+        if configured_channel is None
+        else normalize_slack_channel(str(configured_channel), f"Slack channel for project {project_id!r}")
+    )
+    result = dict(record)
+    result.update({"id": project_id, "path": path, "aliases": [str(x) for x in aliases], "channel": channel})
+    return result
+
+
+def resolve_project(value: str) -> dict[str, Any]:
+    records = project_records()
+    if value in records:
+        return normalize_project(value, records[value])
+    matches = [project for key, record in records.items() if value in (project := normalize_project(key, record))["aliases"]]
+    if not matches:
+        candidate = expanded_path(value)
+        if candidate.exists():
+            resolved = candidate.resolve()
+            matches = [normalize_project(key, record) for key, record in records.items() if expanded_path(record["path"]).resolve() == resolved]
+    if len(matches) != 1:
+        reason = "ambiguous" if matches else "unknown"
+        raise DevError(f"{reason} project: {value}")
+    return matches[0]
+
+
+def all_projects() -> list[dict[str, Any]]:
+    return [normalize_project(key, value) for key, value in sorted(project_records().items())]
+
+
+def validate_project_channel_collisions(projects: list[dict[str, Any]] | None = None) -> None:
+    projects = projects if projects is not None else all_projects()
+    owners: dict[str, str] = {}
+    for project in projects:
+        channel = str(project["channel"])
+        previous = owners.get(channel)
+        if previous is not None and previous != project["id"]:
+            raise DevError(
+                f"Slack channel collision: projects {previous!r} and {project['id']!r} both map to {channel!r}"
+            )
+        owners[channel] = str(project["id"])
+
+
+def has_contract(directory: Path) -> bool:
+    return any((directory / name).exists() for name in CONTRACT_FILES)
+
+
+def state_path(project: dict[str, Any], create: bool = False) -> Path:
+    root = Path(project["path"]).resolve()
+    runtime_root = runtime_dir().resolve()
+    projects_root = (runtime_root / "projects").resolve()
+    if not (projects_root == runtime_root or projects_root.is_relative_to(runtime_root)):
+        raise DevError(f"workflow projects directory escapes runtime root: {projects_root}")
+    external_root = (projects_root / project["id"]).resolve()
+    if not (external_root == projects_root or external_root.is_relative_to(projects_root)):
+        raise DevError(f"project {project['id']!r} external state escapes runtime root")
+    configured = project.get("state_dir")
+    if configured:
+        if not isinstance(configured, (str, os.PathLike)):
+            raise DevError(f"project {project['id']!r} state_dir must be a string")
+        candidate = expanded_path(configured)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        state = candidate.resolve()
+    elif has_contract(root / ".agent") or (root / ".agent").is_dir():
+        state = (root / ".agent").resolve()
+    elif has_contract(root):
+        state = root
+    else:
+        state = external_root
+    if not (state == root or state.is_relative_to(root) or state == external_root or state.is_relative_to(external_root)):
+        raise DevError(f"project {project['id']!r} state_dir escapes approved roots: {state}")
+    if create:
+        if state == external_root or state.is_relative_to(external_root):
+            current = ensure_private_dir(runtime_dir())
+            for part in state.relative_to(runtime_dir().resolve()).parts:
+                current = ensure_private_dir(current / part)
+        else:
+            state.mkdir(parents=True, exist_ok=True)
+        resolved = state.resolve()
+        if resolved != state:
+            raise DevError(f"project {project['id']!r} state_dir changed during creation")
+    return state
+
+
+def event_path() -> Path:
+    return runtime_dir() / "events.jsonl"
+
+
+def outbox_path() -> Path:
+    return runtime_dir() / "slack-outbox.jsonl"
+
+
+def record_event(project: str, kind: str, message: str, **extra: Any) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "id": uuid.uuid4().hex,
+        "timestamp": timestamp(),
+        "project": project,
+        "type": kind,
+        "message": message,
+    }
+    event.update({key: value for key, value in extra.items() if value not in (None, "")})
+    append_jsonl(event_path(), event)
+    return event
+
+
+def markdown_entry(kind: str, fields: dict[str, str]) -> str:
+    entry_id = uuid.uuid4().hex[:12]
+    lines = [f"\n## {kind} {entry_id}", f"- timestamp: `{timestamp()}`"]
+    for key, value in fields.items():
+        rendered = str(value).replace("\n", "\n  ")
+        lines.append(f"- {key}: {rendered}")
+    return "\n".join(lines) + "\n"
+
+
+def slack_settings() -> dict[str, Any]:
+    raw = load_config().get("slack", {})
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def slack_channels() -> tuple[str, str]:
+    settings = slack_settings()
+    ops = settings.get("ops_channel", settings.get("agent_ops_channel", "agent-ops"))
+    attention = settings.get("attention_channel", "attention")
+    return (
+        normalize_slack_channel(str(ops), "Slack operations channel"),
+        normalize_slack_channel(str(attention), "Slack attention channel"),
+    )
+
+
+def report_delivery_plan(project: dict[str, Any], kind: str, message: str, next_step: str = "") -> list[dict[str, str]]:
+    validate_project_channel_collisions()
+    ops, attention = slack_channels()
+    channels = [project["channel"], ops]
+    if kind in {"blocker", "decision"}:
+        channels.append(attention)
+    channels = list(dict.fromkeys(channels))
+    text = f"[{kind}] {project['id']}: {message}"
+    if next_step:
+        text += f"\nNext: {next_step}"
+    return [{"channel": str(channel), "text": text} for channel in channels]
+
+
+def outbox_message_id(event_id: str, index: int, channel: str, text: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"dev-workflow:{event_id}:{index}:{channel}:{text}"))
+
+
+def reconcile_report_outbox() -> int:
+    events = load_jsonl(event_path())
+    existing = {str(record.get("id")) for record in load_jsonl(outbox_path()) if record.get("record") == "message"}
+    created = 0
+    for event in events:
+        plan = event.get("delivery_plan")
+        if not isinstance(plan, list):
+            continue
+        for index, delivery in enumerate(plan):
+            if not isinstance(delivery, dict) or not delivery.get("channel") or not delivery.get("text"):
+                raise DevError(f"invalid delivery plan in event {event.get('id', '<unknown>')}")
+            message_id = outbox_message_id(str(event["id"]), index, str(delivery["channel"]), str(delivery["text"]))
+            if message_id in existing:
+                continue
+            append_jsonl(outbox_path(), {
+                "record": "message",
+                "id": message_id,
+                "event_id": event["id"],
+                "created_at": event.get("timestamp") or timestamp(),
+                "channel": str(delivery["channel"]),
+                "text": str(delivery["text"]),
+                "status": "pending",
+                "attempts": 0,
+            })
+            existing.add(message_id)
+            created += 1
+    return created
+
+
+def flush_lock_path() -> Path:
+    return runtime_dir() / "slack-flush.lock"
+
+
+def queue_report(event: dict[str, Any]) -> list[str]:
+    plan = event.get("delivery_plan")
+    if not isinstance(plan, list):
+        raise DevError("report event is missing its delivery plan")
+    with exclusive_file_lock(flush_lock_path()):
+        reconcile_report_outbox()
+    return [str(delivery["channel"]) for delivery in plan]
+
+
+def command_text(argv: list[str], cwd: Path | None = None) -> str:
+    rendered = shlex.join(argv)
+    return f"cd {shlex.quote(str(cwd))} && {rendered}" if cwd else rendered
+
+
+def run_command(
+    argv: list[str],
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    pass_fds: tuple[int, ...] = (),
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        env=env,
+        pass_fds=pass_fds,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+def scrubbed_agent_env(agent: str) -> dict[str, str]:
+    env = os.environ.copy()
+    denied = re.compile(
+        r"^(SLACK(_|$)|OPENROUTER(_|$)|AWS(_|$)|R2(_|$)|CLOUDFLARE(_|$)|CF_(ACCESS|API|ACCOUNT|ZONE|TOKEN|KEY))",
+        re.IGNORECASE,
+    )
+    for key in list(env):
+        if denied.match(key):
+            env.pop(key, None)
+    return env
+
+
+def exec_interactive(argv: list[str], cwd: Path | None = None, agent: str = "") -> None:
+    if cwd is not None:
+        os.chdir(cwd)
+    os.execvpe(argv[0], argv, scrubbed_agent_env(agent))
+    raise DevError(f"exec unexpectedly returned: {argv[0]}")
+
+
+
+def cmd_projects(_: argparse.Namespace) -> tuple[Any, str]:
+    values = [{"id": p["id"], "path": str(p["path"]), "state": str(state_path(p)), "channel": p["channel"]} for p in all_projects()]
+    text = "\n".join(f"{p['id']}\t{p['path']}" for p in values) or "No projects configured."
+    return values, text
+
+
+def cmd_path(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    value = str(project["path"])
+    return {"project": project["id"], "path": value}, value
+
+
+def context_payload(project: dict[str, Any]) -> dict[str, Any]:
+    state = state_path(project)
+    documents: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for base, names in ((project["path"], ROOT_FILES), (state, CONTRACT_FILES)):
+        for name in names:
+            path = base / name
+            if path in seen or not path.exists():
+                continue
+            seen.add(path)
+            documents.append({"name": name, "path": str(path), "content": path.read_text(encoding="utf-8")})
+    return {"project": project["id"], "path": str(project["path"]), "state": str(state), "documents": documents}
+
+
+def cmd_context(args: argparse.Namespace) -> tuple[Any, str]:
+    payload = context_payload(resolve_project(args.project))
+    chunks = [f"# {doc['name']}\n{doc['content'].rstrip()}" for doc in payload["documents"]]
+    return payload, "\n\n".join(chunks) if chunks else "No project context found."
+
+
+def project_status(project: dict[str, Any]) -> dict[str, Any]:
+    state = state_path(project)
+    files = {name: (state / name).exists() for name in CONTRACT_FILES}
+    defaults = default_documents(project["id"])
+    incomplete = []
+    for name in ("CONTEXT.md", "RECOVERY.md"):
+        path = state / name
+        if path.is_file() and path.read_text(encoding="utf-8").strip() == defaults[name].strip():
+            incomplete.append(name)
+    return {
+        "id": project["id"], "path": str(project["path"]), "exists": project["path"].is_dir(),
+        "state": str(state), "native_state": state == project["path"] or state == project["path"] / ".agent",
+        "files": files, "missing": [name for name, exists in files.items() if not exists],
+        "incomplete": incomplete,
+    }
+
+
+def cmd_status(args: argparse.Namespace) -> tuple[Any, str]:
+    projects = [resolve_project(args.project)] if args.project else all_projects()
+    values = [project_status(p) for p in projects]
+    lines = []
+    for value in values:
+        ready = value["exists"] and not value["missing"] and not value["incomplete"]
+        detail = []
+        if value["missing"]:
+            detail.append(f"missing {', '.join(value['missing'])}")
+        if value["incomplete"]:
+            detail.append(f"template-only {', '.join(value['incomplete'])}")
+        lines.append(
+            f"{value['id']}: {'ok' if ready else 'needs attention'} ({value['state']})"
+            + (f"; {'; '.join(detail)}" if detail else "")
+        )
+    result: Any = values[0] if args.project else values
+    return result, "\n".join(lines) or "No projects configured."
+
+
+def cmd_attention(_: argparse.Namespace) -> tuple[Any, str]:
+    items = [e for e in load_jsonl(event_path()) if e.get("type") in {"blocker", "decision"} and e.get("status", "open") not in {"closed", "resolved"}]
+    items = items[-50:]
+    lines = [f"{e.get('timestamp')} [{e.get('type')}] {e.get('project')}: {e.get('message')}" for e in items]
+    return items, "\n".join(lines) or "No attention items."
+
+
+def default_documents(project_id: str) -> dict[str, str]:
+    defaults = {
+        "AGENTS.md": f"# Agents\n\nProject: {project_id}\n\nFollow the project contract and preserve recorded decisions.\n",
+        "PROJECT.md": f"# Project: {project_id}\n\n## Purpose\n\nDefine the project purpose here.\n",
+        "CONTEXT.md": "# Context\n\nCurrent project context.\n",
+        "TASKS.md": "# Tasks\n\nAppend tasks below.\n",
+        "DECISIONS.md": "# Decisions\n\nAppend decisions below.\n",
+        "RECOVERY.md": "# Recovery\n\nRecord resumable handoffs below.\n",
+        "RECENT_CHANGES.md": "# Recent Changes\n\nGenerated by `dev sync`; do not edit manually.\n",
+    }
+    config = load_config()
+    workflow = config.get("workflow", {})
+    configured = workflow.get("templates_dir") if isinstance(workflow, dict) else None
+    bundled = Path(__file__).resolve().parent.parent / "templates" / "project"
+    template_dirs = []
+    if configured:
+        template_dirs.append(expanded_path(configured))
+    template_dirs.append(bundled)
+    for name in defaults:
+        for template_dir in template_dirs:
+            template = template_dir / name
+            if template.is_file():
+                defaults[name] = template.read_text(encoding="utf-8")
+                break
+    return defaults
+
+
+def register_project(project_id: str, root: Path) -> bool:
+    records = project_records()
+    if project_id in records:
+        existing = expanded_path(records[project_id]["path"]).resolve()
+        if existing != root:
+            raise DevError(f"project id {project_id!r} already points to {existing}")
+        return False
+    path = config_overlay_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prefix = "" if not path.exists() or not path.read_text(encoding="utf-8").strip() else "\n"
+    append_text(path, prefix + f"[projects.{project_id}]\npath = {json.dumps(str(root))}\n")
+    return True
+
+
+def cmd_init(args: argparse.Namespace) -> tuple[Any, str]:
+    root = expanded_path(args.path).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    project_id = args.id or re.sub(r"[^A-Za-z0-9_-]+", "-", root.name).strip("-").lower()
+    if not ID_RE.fullmatch(project_id):
+        raise DevError("project id must contain only letters, digits, underscores, and hyphens")
+    records = project_records()
+    if project_id in records:
+        existing = expanded_path(records[project_id]["path"]).resolve()
+        if existing != root:
+            raise DevError(f"project id {project_id!r} already points to {existing}")
+        project = normalize_project(project_id, records[project_id])
+    else:
+        project = normalize_project(project_id, {"path": str(root)})
+    state = state_path(project, create=True)
+    documents = default_documents(project_id)
+    created: list[str] = []
+    for base, names in ((root, ROOT_FILES), (state, CONTRACT_FILES)):
+        for name in names:
+            target = base / name
+            if not target.exists():
+                target.write_text(documents[name], encoding="utf-8")
+                created.append(str(target))
+    registered = register_project(project_id, root)
+    payload = {
+        "project": project_id, "path": str(root), "state": str(state),
+        "created": created, "registered": registered,
+    }
+    return payload, f"Initialized {project_id} at {root}; created {len(created)} files" + ("; registered" if registered else "") + "."
+
+
+def cmd_task(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    state = state_path(project, create=True)
+    task_id = f"TASK-{uuid.uuid4().hex[:12]}"
+    text = f"\n### {task_id} — {args.text}\n- State: open\n- Owner:\n- Next:\n- Acceptance:\n- Evidence:\n"
+    append_text(state / "TASKS.md", text)
+    event = record_event(project["id"], "task", args.text, status="open", task_id=task_id)
+    return event, f"Task appended for {project['id']}."
+
+
+def cmd_decision(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    state = state_path(project, create=True)
+    plan = report_delivery_plan(project, "decision", args.text)
+    event = record_event(project["id"], "decision", args.text, status=args.status, delivery_plan=plan)
+    append_text(state / "DECISIONS.md", markdown_entry("decision", {"status": args.status, "text": args.text}))
+    channels = queue_report(event)
+    event["queued_channels"] = channels
+    return event, f"Decision appended for {project['id']}; queued to {', '.join(channels)}."
+
+
+def cmd_handoff(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    state = state_path(project, create=True)
+    fields = {"to": args.to, "summary": args.summary, "next": args.next}
+    if args.blocker:
+        fields["blocker"] = args.blocker
+    message = f"to {args.to}: {args.summary}"
+    plan = report_delivery_plan(project, "handoff", message, args.next)
+    event = record_event(
+        project["id"], "handoff", args.summary, to=args.to, next=args.next,
+        blocker=args.blocker, delivery_plan=plan,
+    )
+    blocker = None
+    if args.blocker:
+        blocker_plan = report_delivery_plan(project, "blocker", args.blocker, args.next)
+        blocker = record_event(
+            project["id"], "blocker", args.blocker, next=args.next,
+            handoff_id=event["id"], delivery_plan=blocker_plan,
+        )
+    append_text(state / "RECOVERY.md", markdown_entry("handoff", fields))
+    channels = queue_report(event)
+    if blocker is not None:
+        queue_report(blocker)
+    event["queued_channels"] = channels
+    return event, f"Handoff appended for {project['id']} to {args.to}."
+
+
+def cmd_report(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    plan = report_delivery_plan(project, args.type, args.message, args.next or "")
+    event = record_event(project["id"], args.type, args.message, next=args.next, delivery_plan=plan)
+    channels = queue_report(event)
+    event["queued_channels"] = channels
+    return event, f"[{args.type}] queued to {', '.join(channels)}."
+
+
+def git_output(project: dict[str, Any], argv: list[str], empty_history_ok: bool = False) -> str:
+    prefix = ["git", "-C", str(project["path"])]
+    command = [*prefix, *argv]
+    result = run_command(command)
+    if result.returncode:
+        if empty_history_ok:
+            repository = run_command([*prefix, "rev-parse", "--git-dir"])
+            head = run_command([*prefix, "rev-parse", "--verify", "HEAD"])
+            if repository.returncode == 0 and head.returncode != 0:
+                return ""
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise DevError(f"{command_text(command)} failed: {detail}")
+    return result.stdout.rstrip("\r\n")
+
+
+def parse_open_tasks(task_text: str) -> list[str]:
+    without_comments = re.sub(r"<!--.*?-->", "", task_text, flags=re.DOTALL)
+    tasks = [re.sub(r"^- \[ \]\s*", "", line) for line in without_comments.splitlines() if line.startswith("- [ ]")]
+    for block in re.split(r"(?m)^## task ", without_comments)[1:]:
+        status = re.search(r"(?mi)^- status:\s*(\S+)", block)
+        text = re.search(r"(?mi)^- text:\s*(.+)$", block)
+        if status and text and status.group(1).lower() in {"open", "active", "blocked"}:
+            tasks.append(text.group(1).strip())
+    for match in re.finditer(r"(?ms)^###\s+([^\n]+)\n(.*?)(?=^#{1,3}\s|\Z)", without_comments):
+        heading, body = match.groups()
+        state = re.search(r"(?mi)^-\s*State:\s*(open|active|blocked)\s*$", body)
+        if not state:
+            continue
+        outcome = re.split(r"\s+(?:—|-)\s+", heading, maxsplit=1)
+        tasks.append(outcome[1].strip() if len(outcome) == 2 else heading.strip())
+    return list(dict.fromkeys(tasks))
+
+
+def review_payload(project: dict[str, Any]) -> dict[str, Any]:
+    status = project_status(project)
+    state = state_path(project)
+    tasks: list[str] = []
+    task_file = state / "TASKS.md"
+    if task_file.exists():
+        tasks = parse_open_tasks(task_file.read_text(encoding="utf-8"))
+    events = [e for e in load_jsonl(event_path()) if e.get("project") == project["id"]][-10:]
+    dirty = git_output(project, ["status", "--short"])
+    return {**status, "open_tasks": tasks, "recent_events": events, "git_status": dirty.splitlines() if dirty else []}
+
+
+def cmd_review(args: argparse.Namespace) -> tuple[Any, str]:
+    payload = review_payload(resolve_project(args.project))
+    lines = [f"Review: {payload['id']}", f"State: {payload['state']}", f"Missing: {', '.join(payload['missing']) or 'none'}", f"Open tasks: {len(payload['open_tasks'])}", f"Working tree changes: {len(payload['git_status'])}"]
+    if payload["recent_events"]:
+        lines.append("Recent events:")
+        lines.extend(f"- [{e.get('type')}] {e.get('message')}" for e in payload["recent_events"][-5:])
+    return payload, "\n".join(lines)
+
+
+def sync_project(project: dict[str, Any]) -> dict[str, Any]:
+    state = state_path(project, create=True)
+    target = state / "RECENT_CHANGES.md"
+    log = git_output(project, ["log", "-20", "--date=iso-strict", "--pretty=format:- `%h` %ad — %s"], empty_history_ok=True)
+    status_args = ["status", "--short"]
+    try:
+        relative_target = target.relative_to(project["path"]).as_posix()
+        status_args.extend(["--", ".", f":(exclude){relative_target}"])
+    except ValueError:
+        pass
+    dirty = git_output(project, status_args)
+    lines = ["# Recent Changes", "", "Generated by `dev sync`; do not edit manually.", "", "## Commits", "", log or "No Git commits found.", "", "## Working Tree", ""]
+    lines.extend(f"- `{line[:2]}` {line[3:]}" if len(line) > 3 else f"- `{line}`" for line in dirty.splitlines())
+    if not dirty:
+        lines.append("Clean.")
+    content = "\n".join(lines).rstrip() + "\n"
+    atomic_write(target, content)
+    return {"project": project["id"], "path": str(target), "commits": len(log.splitlines()) if log else 0, "changes": len(dirty.splitlines()) if dirty else 0}
+
+
+def cmd_sync(args: argparse.Namespace) -> tuple[Any, str]:
+    projects = [resolve_project(args.project)] if args.project else all_projects()
+    values = [sync_project(project) for project in projects]
+    return values[0] if args.project else values, "\n".join(f"Synced {value['project']}: {value['path']}" for value in values) or "No projects configured."
+
+
+def default_session_name(project_id: str) -> str:
+    candidate = f"dev-{project_id}"
+    if len(candidate) <= 48:
+        return candidate
+    digest = hashlib.sha256(project_id.encode()).hexdigest()[:8]
+    return f"dev-{project_id[:35]}-{digest}"
+
+
+def launch_spec(project: dict[str, Any], agent: str, name: str | None) -> tuple[list[str], Path | None]:
+    session_name = name or default_session_name(project["id"])
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,47}", session_name):
+        raise DevError("session name must be 1-48 letters, numbers, dots, underscores, or hyphens")
+    root = project["path"]
+    if agent == "shell":
+        return ["tmux", "new-session", "-A", "-s", session_name, "-c", str(root)], None
+    if agent == "omp":
+        return [realm_session_command(), "agent", "start", session_name, "--cwd", str(root), "--claim", session_name], None
+    if agent == "codex":
+        return ["codex", "-C", str(root)], None
+    return ["claude"], root
+
+def lifecycle_operation_lock_path() -> Path:
+    state = expanded_path(
+        os.environ.get("OMP_LIFECYCLE_STATE_DIR", "~/.local/share/realm/omp-shutdowns")
+    )
+    return state / "operations.lock"
+
+
+def claim_receipt(stdout: str) -> tuple[bool, str]:
+    created = [line.strip() for line in stdout.splitlines() if line.strip().startswith("claim_created=")]
+    generations = [
+        line.strip().removeprefix("claim_generation=")
+        for line in stdout.splitlines()
+        if line.strip().startswith("claim_generation=")
+    ]
+    if created not in (["claim_created=true"], ["claim_created=false"]) or len(generations) != 1 or not generations[0]:
+        raise DevError("workspace claim provenance is ambiguous; claim retained")
+    return created == ["claim_created=true"], generations[0]
+
+
+def release_workspace_claim(session_name: str, generation: str, env: dict[str, str]) -> bool:
+    try:
+        return run_command(
+            [session_workspace_command(), "release-if", session_name, generation],
+            env=env,
+        ).returncode == 0
+    except OSError:
+        return False
+
+
+def cleanup_failed_omp_start(
+    session_name: str,
+    detail: str,
+    env: dict[str, str],
+    claim_generation: str | None,
+    operation_lock_fd: int,
+) -> bool:
+    preflight_failures = (
+        "agent name must be",
+        "already exists",
+        "managed omp fleet limit reached",
+        "host omp process limit reached",
+        "memory is available",
+        "working directory does not exist",
+        "no persisted omp session matches",
+        "ambiguous omp session",
+        "session already has a registered writer",
+        "session already has active omp writer",
+        "workspace claim",
+    )
+    lower_detail = detail.lower()
+    if "writer death not confirmed" in lower_detail:
+        return False
+    if not any(marker in lower_detail for marker in preflight_failures) and "writer death confirmed" not in lower_detail:
+        stop_argv = [
+            realm_session_command(),
+            "agent",
+            "stop",
+            session_name,
+            "--force",
+            "--operation-lock-fd",
+            str(operation_lock_fd),
+        ]
+        try:
+            stopped = run_command(
+                stop_argv,
+                env=env,
+                pass_fds=(operation_lock_fd,),
+            )
+        except OSError:
+            return False
+        if stopped.returncode:
+            return False
+    return claim_generation is None or release_workspace_claim(session_name, claim_generation, env)
+
+
+def _execute_omp_start_locked(
+    argv: list[str],
+    session_name: str,
+    root: Path,
+    operation_lock_fd: int,
+    allow_existing_claim: bool = False,
+    expected_generation: str | None = None,
+) -> None:
+    lock_name = hashlib.sha256(session_name.encode()).hexdigest()[:16]
+    with exclusive_file_lock(runtime_dir() / f"omp-start-{lock_name}.lock"):
+        env = scrubbed_agent_env("omp")
+        if allow_existing_claim:
+            if not expected_generation:
+                raise DevError("interrupted OMP session has no bound workspace claim generation")
+            claim_argv = [
+                session_workspace_command(),
+                "claim-ensure-generation",
+                session_name,
+                expected_generation,
+                str(root),
+            ]
+        else:
+            claim_argv = [session_workspace_command(), "claim-new", session_name, str(root)]
+        try:
+            claim = run_command(claim_argv, env=env)
+        except OSError as exc:
+            raise DevError(f"could not establish OMP workspace claim: {exc}") from exc
+        if claim.returncode:
+            detail = claim.stderr.strip() or claim.stdout.strip() or f"claim exited {claim.returncode}"
+            raise DevError(detail)
+        claim_created, generation = claim_receipt(claim.stdout)
+        if not allow_existing_claim and not claim_created:
+            raise DevError("new workspace claim reported existing ownership; claim retained")
+        realm_argv = list(argv)
+        if "--claim-generation" not in realm_argv:
+            realm_argv.extend(["--claim-generation", generation])
+        realm_argv.extend(["--operation-lock-fd", str(operation_lock_fd)])
+        try:
+            started = run_command(
+                realm_argv,
+                env=env,
+                pass_fds=(operation_lock_fd,),
+            )
+        except OSError as exc:
+            owned_generation = generation if claim_created else None
+            cleaned = owned_generation is None or release_workspace_claim(
+                session_name,
+                owned_generation,
+                env,
+            )
+            suffix = "" if cleaned else "; workspace claim retained because cleanup failed"
+            raise DevError(f"could not start OMP session {session_name}: {exc}{suffix}") from exc
+        if started.returncode:
+            detail = started.stderr.strip() or started.stdout.strip() or f"start exited {started.returncode}"
+            owned_generation = generation if claim_created else None
+            cleaned = cleanup_failed_omp_start(
+                session_name,
+                detail,
+                env,
+                owned_generation,
+                operation_lock_fd,
+            )
+            if not cleaned:
+                detail += "; workspace claim retained because cleanup failed"
+            raise DevError(detail)
+        exec_interactive([realm_session_command(), "agent", "attach", session_name], root, "omp")
+
+
+def execute_omp_start(
+    argv: list[str],
+    session_name: str,
+    root: Path,
+    allow_existing_claim: bool = False,
+    expected_generation: str | None = None,
+) -> None:
+    with exclusive_file_lock(lifecycle_operation_lock_path()) as operation_lock_fd:
+        _execute_omp_start_locked(
+            argv,
+            session_name,
+            root,
+            operation_lock_fd,
+            allow_existing_claim=allow_existing_claim,
+            expected_generation=expected_generation,
+        )
+
+
+def cmd_start(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    argv, cwd = launch_spec(project, args.agent, args.name)
+    session_name = argv[3] if args.agent == "omp" else (args.name or default_session_name(project["id"]))
+    if args.agent == "omp":
+        rendered = command_text([
+            str(Path(__file__).resolve()), "start", project["id"], "--agent", "omp",
+            "--name", session_name, "--exec",
+        ])
+    else:
+        rendered = command_text(argv, cwd)
+    if args.exec:
+        if args.agent == "omp":
+            execute_omp_start(argv, session_name, project["path"])
+        exec_interactive(argv, cwd or project["path"], args.agent)
+    return {"project": project["id"], "agent": args.agent, "command": rendered, "executed": False}, rendered
+
+
+
+def realm_resume_spec(project: dict[str, Any]) -> list[str] | None:
+    directory = expanded_path(os.environ.get("REALM_AGENT_STATE_DIR", "~/.local/share/realm"))
+    registry = directory / "omp-fleet.json"
+    if not registry.exists():
+        return None
+    try:
+        agents = json.loads(registry.read_text(encoding="utf-8")).get("agents", {})
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+    root = project["path"].resolve()
+    matches = []
+    for name, entry in agents.items():
+        if not isinstance(entry, dict) or entry.get("state") not in {"running", "interrupted"}:
+            continue
+        if entry.get("state") == "interrupted" and not (entry.get("session_id") or entry.get("session_path")):
+            continue
+        try:
+            cwd = expanded_path(str(entry.get("cwd", ""))).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if cwd == root:
+            matches.append((str(name), entry))
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda item: (item[1].get("state") == "running", str(item[1].get("last_seen", ""))),
+        reverse=True,
+    )
+    name, entry = matches[0]
+    if entry.get("state") == "running":
+        return [realm_session_command(), "agent", "attach", name]
+    session = entry.get("session_id") or entry.get("session_path")
+    if not session:
+        return None
+    generation = entry.get("claim_generation")
+    if not isinstance(generation, str) or not generation:
+        return None
+    argv = [realm_session_command(), "agent", "start", name, "--cwd", str(root), "--resume", str(session)]
+    argv.extend(["--claim", name, "--claim-generation", generation])
+    return argv
+
+
+def cmd_resume(args: argparse.Namespace) -> tuple[Any, str]:
+    project = resolve_project(args.project)
+    context = context_payload(project)
+    argv = realm_resume_spec(project)
+    is_start = bool(argv and len(argv) > 3 and argv[1:3] == ["agent", "start"])
+    if is_start:
+        session_name = argv[3]
+        rendered = command_text([str(Path(__file__).resolve()), "resume", project["id"], "--exec"])
+    else:
+        rendered = command_text(argv) if argv else None
+    if args.exec:
+        if not argv:
+            raise DevError(f"no existing OMP session found for {project['id']}")
+        if is_start:
+            generation_index = argv.index("--claim-generation") + 1
+            execute_omp_start(
+                argv,
+                session_name,
+                project["path"],
+                allow_existing_claim=True,
+                expected_generation=argv[generation_index],
+            )
+        else:
+            exec_interactive(argv, project["path"], "omp")
+    summary = []
+    for doc in context["documents"]:
+        if doc["name"] in {"CONTEXT.md", "RECOVERY.md"}:
+            summary.append(f"# {doc['name']}\n{doc['content'].rstrip()}")
+    if rendered:
+        summary.append(f"Resume command:\n{rendered}")
+    else:
+        summary.append("No existing OMP recovery command found.")
+    text = "\n\n".join(summary)
+    return {"project": project["id"], "command": rendered, "executed": False, "context": context}, text
+
+
+def cmd_recover(_: argparse.Namespace) -> tuple[Any, str]:
+    argv = [realm_session_command(), "agent", "recover"]
+    result = run_command(argv)
+    if result.returncode:
+        raise DevError(result.stderr.strip() or f"recover exited {result.returncode}")
+    text = result.stdout.rstrip() or "No interrupted OMP sessions."
+    return {"command": command_text(argv), "output": result.stdout.rstrip()}, text
+
+
+def desired_slack_channels() -> list[str]:
+    ops, attention = slack_channels()
+    projects = all_projects()
+    validate_project_channel_collisions(projects)
+    return sorted(set([ops, attention, *(project["channel"] for project in projects)]))
+
+
+def token_file_path() -> Path:
+    return expanded_path(os.environ.get("SLACK_BOT_TOKEN_FILE", "~/.secrets/slack-bot-token.txt"))
+
+
+def token_value() -> tuple[str, str]:
+    direct = os.environ.get("SLACK_BOT_TOKEN")
+    if direct and direct.strip():
+        return direct.strip(), "environment"
+    path = token_file_path()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise DevError(f"Slack token file is unavailable or unsafe: {path}") from exc
+    try:
+        info = os.fstat(fd)
+        mode = stat.S_IMODE(info.st_mode)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or mode & 0o077:
+            raise DevError(f"Slack token file is insecure: {path}")
+        with os.fdopen(os.dup(fd), "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+    finally:
+        os.close(fd)
+    if not token:
+        raise DevError(f"Slack token file is empty: {path}")
+    return token, str(path)
+
+
+def slack_api_base() -> str:
+    injected = os.environ.get("DEV_WORKFLOW_TEST_SLACK_API_BASE")
+    if not injected:
+        return SLACK_API_BASE
+    if os.environ.get("DEV_WORKFLOW_TESTING") != "1":
+        raise DevError("test Slack API base requires DEV_WORKFLOW_TESTING=1")
+    parsed = urllib.parse.urlsplit(injected)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname not in {"127.0.0.1", "::1"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise DevError("test Slack API base must be a loopback-only HTTP(S) URL")
+    return injected.rstrip("/")
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+def slack_call(method: str, values: dict[str, str] | None = None) -> dict[str, Any]:
+    token, _ = token_value()
+    body = urllib.parse.urlencode(values or {}).encode()
+    request = urllib.request.Request(
+        f"{slack_api_base()}/{method}",
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.build_opener(NoRedirectHandler).open(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        raise DevError(f"Slack API request failed for {method}") from exc
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        error = str(payload.get("error", "unknown_error")) if isinstance(payload, dict) else "invalid_response"
+        raise SlackAPIError(method, error)
+    return payload
+
+
+def list_slack_channels() -> dict[str, str]:
+    found: dict[str, str] = {}
+    cursor = ""
+    while True:
+        values = {"limit": "200", "exclude_archived": "true"}
+        if cursor:
+            values["cursor"] = cursor
+        payload = slack_call("conversations.list", values)
+        for channel in payload.get("channels", []):
+            if isinstance(channel, dict) and channel.get("name") and channel.get("id"):
+                found[str(channel["name"])] = str(channel["id"])
+        cursor = str(payload.get("response_metadata", {}).get("next_cursor", ""))
+        if not cursor:
+            return found
+
+
+def channel_cache_path() -> Path:
+    return runtime_dir() / "slack-channels.json"
+
+
+def save_channel_cache(channels: dict[str, str]) -> None:
+    atomic_write(channel_cache_path(), json.dumps(channels, indent=2, sort_keys=True) + "\n", 0o600)
+
+
+def cmd_slack_plan(_: argparse.Namespace) -> tuple[Any, str]:
+    channels = desired_slack_channels()
+    return {"apply": False, "channels": channels}, "Plan (no changes):\n" + "\n".join(f"- ensure #{name}" for name in channels)
+
+
+def cmd_slack_bootstrap(args: argparse.Namespace) -> tuple[Any, str]:
+    desired = desired_slack_channels()
+    if not args.apply:
+        return cmd_slack_plan(args)
+    names = [name for name in desired if not SLACK_CONVERSATION_ID_RE.fullmatch(name)]
+    found = list_slack_channels() if names else {}
+    created: list[str] = []
+    for name in names:
+        if name in found:
+            continue
+        payload = slack_call("conversations.create", {"name": name})
+        channel = payload.get("channel", {})
+        if channel.get("id"):
+            found[name] = str(channel["id"])
+            created.append(name)
+    save_channel_cache({name: found[name] for name in names if name in found})
+    missing = [name for name in names if name not in found]
+    if missing:
+        raise DevError(f"Slack channels unresolved: {', '.join(missing)}")
+    payload = {
+        "apply": True, "created": created,
+        "existing": [name for name in desired if name not in created],
+        "channels": desired,
+    }
+    return payload, f"Slack bootstrap complete: created {len(created)}, existing {len(desired) - len(created)}."
+
+
+def outbox_state() -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    records = load_jsonl(outbox_path())
+    messages_by_id: dict[str, dict[str, Any]] = {}
+    deliveries: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if record.get("record") == "message" and record.get("id"):
+            messages_by_id.setdefault(str(record["id"]), record)
+        elif record.get("record") == "delivery" and record.get("outbox_id"):
+            key = str(record["outbox_id"])
+            current = deliveries.get(key)
+            if current is None or current.get("status") != "sent":
+                deliveries[key] = record
+    return list(messages_by_id.values()), deliveries
+
+
+def resolve_channel_ids(names: set[str], refresh: bool = False) -> dict[str, str]:
+    del refresh  # Name mappings are deliberately revalidated on every delivery.
+    named = {name for name in names if not SLACK_CONVERSATION_ID_RE.fullmatch(name)}
+    fresh = list_slack_channels() if named else {}
+    if named:
+        save_channel_cache(fresh)
+    result = {
+        name: (name if SLACK_CONVERSATION_ID_RE.fullmatch(name) else fresh.get(name, ""))
+        for name in names
+    }
+    unresolved = sorted(name for name, channel_id in result.items() if not channel_id)
+    if unresolved:
+        raise DevError(f"Slack channels unresolved: {', '.join(unresolved)}")
+    return result
+
+
+def cmd_slack_flush(_: argparse.Namespace) -> tuple[Any, str]:
+    with exclusive_file_lock(flush_lock_path()):
+        validate_project_channel_collisions()
+        reconcile_report_outbox()
+        messages, deliveries = outbox_state()
+        pending = [message for message in messages if deliveries.get(str(message["id"]), {}).get("status") != "sent"]
+        if not pending:
+            return {"sent": 0, "failed": 0, "pending": 0}, "Slack outbox is empty."
+        channel_names = {str(message["channel"]) for message in pending}
+        channel_ids = resolve_channel_ids(channel_names)
+        sent = failed = 0
+        for message in pending:
+            channel_name = str(message["channel"])
+            previous = deliveries.get(str(message["id"]), {})
+            attempts = int(previous.get("attempts", message.get("attempts", 0))) + 1
+            delivery: dict[str, Any] = {
+                "record": "delivery", "outbox_id": message["id"],
+                "timestamp": timestamp(), "attempts": attempts,
+            }
+            values = {
+                "channel": channel_ids[channel_name],
+                "text": str(message["text"]),
+                "client_msg_id": str(message["id"]),
+            }
+            try:
+                try:
+                    response = slack_call("chat.postMessage", values)
+                except SlackAPIError as exc:
+                    if exc.error == "not_in_channel":
+                        slack_call("conversations.join", {"channel": values["channel"]})
+                        response = slack_call("chat.postMessage", values)
+                    elif (
+                        exc.error in {"channel_not_found", "is_archived"}
+                        and not SLACK_CONVERSATION_ID_RE.fullmatch(channel_name)
+                    ):
+                        channel_ids = resolve_channel_ids(channel_names, refresh=True)
+                        values["channel"] = channel_ids[channel_name]
+                        response = slack_call("chat.postMessage", values)
+                    else:
+                        raise
+                delivery.update({"status": "sent", "ts": str(response.get("ts", ""))})
+                sent += 1
+            except DevError as exc:
+                delivery.update({"status": "failed", "error": str(exc)})
+                failed += 1
+            append_jsonl(outbox_path(), delivery)
+        payload = {"sent": sent, "failed": failed, "pending": failed}
+        return payload, f"Slack flush: sent {sent}, failed {failed}."
+
+
+def cmd_slack_status(_: argparse.Namespace) -> tuple[Any, str]:
+    with exclusive_file_lock(flush_lock_path()):
+        reconcile_report_outbox()
+        messages, deliveries = outbox_state()
+    counts = {"pending": 0, "sent": 0, "failed": 0}
+    for message in messages:
+        status_value = deliveries.get(str(message["id"]), {}).get("status", "pending")
+        counts[status_value if status_value in counts else "pending"] += 1
+    payload = {**counts, "total": len(messages), "ledger": str(outbox_path())}
+    return payload, f"Slack outbox: {counts['pending']} pending, {counts['failed']} failed, {counts['sent']} sent."
+
+
+def secret_audit() -> dict[str, Any]:
+    if os.environ.get("SLACK_BOT_TOKEN", "").strip():
+        return {"source": "environment", "status": "present", "secure": True}
+    path = token_file_path()
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return {"source": str(path), "status": "missing", "secure": False}
+    mode = stat.S_IMODE(info.st_mode)
+    owner_ok = info.st_uid == os.geteuid()
+    regular = stat.S_ISREG(info.st_mode)
+    secure = regular and owner_ok and mode & 0o077 == 0
+    status_value = "secure" if secure else ("symlink" if stat.S_ISLNK(info.st_mode) else "insecure")
+    return {
+        "source": str(path), "status": status_value, "secure": secure,
+        "mode": f"{mode:04o}", "owner_ok": owner_ok, "regular": regular,
+    }
+
+
+def cmd_secrets_audit(_: argparse.Namespace) -> tuple[Any, str]:
+    payload = secret_audit()
+    source = payload["source"]
+    if source == "environment":
+        text = "Slack token: present in environment."
+    elif payload["status"] == "missing":
+        text = f"Slack token: missing ({source})."
+    else:
+        text = f"Slack token file: {payload['status']} ({payload['mode']}, {source})."
+    return payload, text
+
+
+def realm_portfolio_routes(config: dict[str, Any], routes: set[str]) -> tuple[bool, str]:
+    workflow = config.get("workflow", {})
+    configured = workflow.get("realm_portfolio") if isinstance(workflow, dict) else None
+    if not configured:
+        return False, "workflow.realm_portfolio is not configured"
+    path = expanded_path(str(configured))
+    try:
+        portfolio = read_toml(path)
+    except DevError as exc:
+        return False, str(exc)
+    entries = portfolio.get("project", [])
+    if not isinstance(entries, list):
+        return False, f"invalid Realm portfolio project list: {path}"
+    active: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("project_id"):
+            return False, f"invalid Realm portfolio entry: {path}"
+        project_id = str(entry["project_id"])
+        if not ID_RE.fullmatch(project_id):
+            return False, f"invalid Realm portfolio project id: {project_id!r}"
+        if entry.get("lifecycle") == "active":
+            active.add(project_id)
+    missing = sorted(active - routes)
+    if missing:
+        return False, f"active Realm projects without routes: {', '.join(missing)}"
+    return True, f"{len(active)} active Realm routes"
+
+
+def cmd_doctor(_: argparse.Namespace) -> tuple[Any, str]:
+    checks: list[dict[str, Any]] = []
+
+    def add(name: str, ok: bool, detail: str, required: bool = True) -> None:
+        checks.append({"name": name, "ok": ok, "required": required, "detail": detail})
+
+    config: dict[str, Any] = {}
+    projects: dict[str, dict[str, Any]] = {}
+    try:
+        config = load_config()
+        projects = project_records(config)
+        add("config", True, f"{len(projects)} projects")
+    except DevError as exc:
+        add("config", False, str(exc))
+    if projects:
+        route_ok, route_detail = realm_portfolio_routes(config, set(projects))
+        add("realm-portfolio", route_ok, route_detail)
+    else:
+        add("realm-portfolio", False, "project routes unavailable")
+    state = runtime_dir()
+    try:
+        ensure_private_dir(state)
+        probe = state / f".doctor-{os.getpid()}"
+        fd = private_fd(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+        os.write(fd, b"ok")
+        os.fsync(fd)
+        os.close(fd)
+        probe.unlink()
+        add("state", True, str(state))
+    except (OSError, DevError) as exc:
+        add("state", False, str(exc))
+    add("python", sys.version_info >= (3, 11), sys.version.split()[0])
+    realm_path = command_location(REALM_SESSION, "DEV_REALM_SESSION")
+    add("realm-session", realm_path is not None, realm_path or "not found")
+    workspace_path = command_location(SESSION_WORKSPACE, "DEV_SESSION_WORKSPACE")
+    add("session-workspace", workspace_path is not None, workspace_path or "not found")
+    for command in ("git", "tmux"):
+        found = shutil.which(command)
+        add(command, found is not None, found or "not found")
+    for command in ("codex", "claude"):
+        found = shutil.which(command)
+        add(command, found is not None, found or "not found", required=False)
+    secret = secret_audit()
+    missing = secret["status"] == "missing"
+    add("slack-secret", bool(secret["secure"]), str(secret["status"]), required=not missing)
+    ok = all(check["ok"] for check in checks if check["required"])
+    payload = {"ok": ok, "checks": checks}
+    labels = [
+        f"{'ok' if check['ok'] else ('FAIL' if check['required'] else 'WARN')}\t{check['name']}\t{check['detail']}"
+        for check in checks
+    ]
+    return payload, "\n".join(labels)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="dev", description=__doc__)
+    parser.add_argument("--json", action="store_true", help="emit JSON")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    commands.add_parser("projects").set_defaults(func=cmd_projects)
+    path = commands.add_parser("path"); path.add_argument("project"); path.set_defaults(func=cmd_path)
+    context = commands.add_parser("context"); context.add_argument("project"); context.set_defaults(func=cmd_context)
+    status_cmd = commands.add_parser("status"); status_cmd.add_argument("project", nargs="?"); status_cmd.set_defaults(func=cmd_status)
+    commands.add_parser("attention").set_defaults(func=cmd_attention)
+    init = commands.add_parser("init"); init.add_argument("path"); init.add_argument("--id"); init.set_defaults(func=cmd_init)
+    task = commands.add_parser("task"); task.add_argument("project"); task.add_argument("text"); task.set_defaults(func=cmd_task)
+    decision = commands.add_parser("decision"); decision.add_argument("project"); decision.add_argument("text"); decision.add_argument("--status", default="accepted"); decision.set_defaults(func=cmd_decision)
+    handoff = commands.add_parser("handoff"); handoff.add_argument("project"); handoff.add_argument("--to", required=True); handoff.add_argument("--summary", required=True); handoff.add_argument("--next", required=True); handoff.add_argument("--blocker"); handoff.set_defaults(func=cmd_handoff)
+    report = commands.add_parser("report"); report.add_argument("project"); report.add_argument("--type", choices=("progress", "blocker", "decision", "handoff"), required=True); report.add_argument("--message", required=True); report.add_argument("--next"); report.set_defaults(func=cmd_report)
+    review = commands.add_parser("review"); review.add_argument("project"); review.set_defaults(func=cmd_review)
+    sync = commands.add_parser("sync"); sync.add_argument("project", nargs="?"); sync.set_defaults(func=cmd_sync)
+    start = commands.add_parser("start"); start.add_argument("project"); start.add_argument("--agent", choices=("shell", "omp", "codex", "claude"), required=True); start.add_argument("--name"); start.add_argument("--exec", action="store_true"); start.set_defaults(func=cmd_start)
+    resume = commands.add_parser("resume"); resume.add_argument("project"); resume.add_argument("--exec", action="store_true"); resume.set_defaults(func=cmd_resume)
+    commands.add_parser("recover").set_defaults(func=cmd_recover)
+
+    slack = commands.add_parser("slack"); slack_commands = slack.add_subparsers(dest="slack_command", required=True)
+    slack_commands.add_parser("plan").set_defaults(func=cmd_slack_plan)
+    bootstrap = slack_commands.add_parser("bootstrap"); bootstrap.add_argument("--apply", action="store_true"); bootstrap.set_defaults(func=cmd_slack_bootstrap)
+    slack_commands.add_parser("flush").set_defaults(func=cmd_slack_flush)
+    slack_commands.add_parser("status").set_defaults(func=cmd_slack_status)
+
+    secrets = commands.add_parser("secrets"); secret_commands = secrets.add_subparsers(dest="secret_command", required=True)
+    secret_commands.add_parser("audit").set_defaults(func=cmd_secrets_audit)
+    commands.add_parser("doctor").set_defaults(func=cmd_doctor)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    json_output = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    if json_output:
+        raw.insert(0, "--json")
+    parser = build_parser()
+    args = parser.parse_args(raw)
+    try:
+        payload, text = args.func(args)
+    except (DevError, OSError) as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        else:
+            print(f"dev: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({"ok": True, "result": payload}, sort_keys=True, ensure_ascii=False))
+    elif text:
+        print(text)
+    if args.command == "doctor" and isinstance(payload, dict) and not payload.get("ok"):
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

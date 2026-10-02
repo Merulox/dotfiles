@@ -1,0 +1,1753 @@
+#!/usr/bin/env python3
+"""Capture, stop, rank, and safely resume top-level OMP work threads."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import json
+import math
+import os
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import time
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Callable, Iterable
+
+HOME = Path.home()
+OMP_HOME = Path(os.environ.get("PI_CODING_AGENT_DIR", HOME / ".omp/agent")).expanduser()
+SESSION_ROOT = OMP_HOME / "sessions"
+TERMINAL_ROOT = OMP_HOME / "terminal-sessions"
+STATE_ROOT = Path(os.environ.get("OMP_LIFECYCLE_STATE_DIR", HOME / ".local/share/realm/omp-shutdowns")).expanduser()
+REGISTRY_PATH = Path(os.environ.get("REALM_AGENT_STATE_DIR", HOME / ".local/share/realm")).expanduser() / "omp-fleet.json"
+WORKSPACE_PATH = Path(os.environ.get("OMP_WORKSPACE_PATH", HOME / ".local/share/claude-sessions/workspace.json")).expanduser()
+REALM_SESSION_BIN = os.environ.get("REALM_SESSION_BIN", "realm-session")
+WORKSPACE_BIN = os.environ.get("SESSION_WORKSPACE_BIN", "session-workspace")
+MAX_TOP_LEVEL_OMP = int(os.environ.get("REALM_OMP_PROCESS_MAX", "3"))
+SCHEMA_VERSION = 1
+CONTINUATION_RESERVATION_TTL_S = 120
+SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.I)
+CLAIM_RE = re.compile(r"session-workspace\s+claim\s+([^\s;&]+)")
+SECRET_PATTERNS = (
+    re.compile(r"(?i)(authorization\s*[:=]\s*)((?:(?:bearer|basic)\s+)?[^\s,;]+)"),
+    re.compile(r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*)([^\s,;]+)"),
+    re.compile(r"\b(?:sk|xox[baprs]|ghp|github_pat)_[A-Za-z0-9_-]{12,}\b"),
+)
+RECOMMENDATIONS = {"pursue_now", "resume_exact", "manual_review", "defer", "archive"}
+RECOVERY_MODES = {"resume_exact", "new_session", "do_not_resume"}
+
+
+class LifecycleError(RuntimeError):
+    pass
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def run(
+    args: list[str],
+    *,
+    check: bool = True,
+    pass_fds: tuple[int, ...] = (),
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        check=check,
+        capture_output=True,
+        text=True,
+        pass_fds=pass_fds,
+    )
+
+
+@contextmanager
+def lifecycle_operation_lock():
+    STATE_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE_ROOT, 0o700)
+    lock_path = STATE_ROOT / "operations.lock"
+    with lock_path.open("a+") as lock_handle:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        yield lock_handle.fileno()
+
+
+def run_with_operation_lock_handoff(
+    args: list[str],
+    operation_lock_fd: int,
+) -> subprocess.CompletedProcess[str]:
+    command = [*args, "--operation-lock-fd", str(operation_lock_fd)]
+    return run(
+        command,
+        check=False,
+        pass_fds=(operation_lock_fd,),
+    )
+
+
+
+def load_json(path: Path, default: Any) -> Any:
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(f"Malformed JSON state file {path}: {exc}") from exc
+    except OSError as exc:
+        raise LifecycleError(f"Cannot read state file {path}: {exc}") from exc
+
+
+def redact_text(value: str) -> str:
+    text = value.replace("\x00", " ")
+    for pattern in SECRET_PATTERNS[:2]:
+        text = pattern.sub(lambda match: match.group(1) + "[REDACTED]", text)
+    text = SECRET_PATTERNS[2].sub("[REDACTED]", text)
+    return text
+
+
+def compact(value: str, limit: int = 1200) -> str:
+    text = re.sub(r"\s+", " ", redact_text(value)).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def parse_open_tasks(todo_text: str) -> list[str]:
+    tasks: list[str] = []
+    seen: set[str] = set()
+    remaining = todo_text
+    marker = re.search(r"^Remaining items(?:\s*\([^\n]*\))?:\s*$", todo_text, re.M | re.I)
+    if marker:
+        remaining = todo_text[marker.end() :]
+        remaining = re.split(r"^Overall:", remaining, maxsplit=1, flags=re.M | re.I)[0]
+    for raw_line in remaining.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("-"):
+            continue
+        body = line[1:].strip()
+        if re.search(r"\((?:dropped|done|completed)\)\s*$", body, re.I):
+            continue
+        if body.startswith("[ ]"):
+            body = body[3:].strip()
+        elif re.search(r"\[(?:pending|in_progress)\]", body, re.I):
+            body = re.sub(r"\s*\[(?:pending|in_progress)\]\s*", " ", body, flags=re.I).strip()
+        elif not re.search(r"\((?:in progress|pending)\)\s*$", body, re.I):
+            continue
+        body = re.sub(r"\s+\((?:in progress|pending)\)\s*$", "", body, flags=re.I).strip()
+        body = re.sub(r"\s+\([^()]{1,80}\)\s*$", "", body).strip()
+        clean = compact(body, 300)
+        key = clean.casefold()
+        if clean and key not in seen:
+            seen.add(key)
+            tasks.append(clean)
+    return tasks
+
+
+
+
+def session_id_from_path(path: str | Path | None) -> str:
+    if not path:
+        return ""
+    match = SESSION_ID_RE.search(Path(path).name)
+    return match.group(1).lower() if match else ""
+
+
+def content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    values: list[str] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text" and isinstance(part.get("text"), str):
+            values.append(part["text"])
+        elif part.get("type") == "toolCall":
+            arguments = part.get("arguments")
+            if isinstance(arguments, dict):
+                values.append(json.dumps(arguments, sort_keys=True, default=str))
+    return "\n".join(values)
+
+
+def extract_session(path: Path) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "session_path": str(path),
+        "session_id": session_id_from_path(path),
+        "title": "",
+        "cwd": "",
+        "created_at": "",
+        "last_activity": "",
+        "initial_request": "",
+        "latest_request": "",
+        "last_assistant_text": "",
+        "open_tasks": [],
+        "todo_state": "unknown",
+        "workspace_claim_names": [],
+        "parse_errors": 0,
+    }
+    user_messages: list[str] = []
+    assistant_messages: list[str] = []
+    latest_todo = ""
+    latest_user_line = -1
+    latest_todo_line = -1
+    claim_names: set[str] = set()
+    try:
+        handle = path.open(errors="replace")
+    except OSError as exc:
+        summary["parse_errors"] = 1
+        summary["error"] = str(exc)
+        return summary
+    with handle:
+        for line_number, line in enumerate(handle, 1):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                summary["parse_errors"] += 1
+                continue
+            row_type = row.get("type")
+            timestamp = row.get("timestamp") or row.get("updatedAt")
+            if isinstance(timestamp, str):
+                summary["last_activity"] = timestamp
+            if row_type == "session":
+                summary["session_id"] = str(row.get("id") or summary["session_id"])
+                summary["cwd"] = str(row.get("cwd") or "")
+                summary["created_at"] = str(row.get("timestamp") or "")
+            elif row_type in {"title", "title_change"}:
+                summary["title"] = compact(str(row.get("title") or ""), 240)
+            if row_type != "message":
+                continue
+            message = row.get("message")
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role")
+            text = content_text(message.get("content"))
+            for match in CLAIM_RE.finditer(text):
+                claim_names.add(match.group(1).removeprefix("cc-"))
+            if role == "user":
+                if row.get("synthetic") or message.get("attribution") == "agent":
+                    continue
+                clean = compact(text, 2400)
+                if clean:
+                    user_messages.append(clean)
+                    latest_user_line = line_number
+            elif role == "assistant":
+                clean = compact(text, 2400)
+                if clean:
+                    assistant_messages.append(clean)
+            elif role == "toolResult" and message.get("toolName") == "todo":
+                latest_todo = text
+                latest_todo_line = line_number
+    if not summary["last_activity"]:
+        try:
+            summary["last_activity"] = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc).isoformat(timespec="seconds")
+        except OSError:
+            pass
+    meaningful_requests = [message for message in user_messages if not re.fullmatch(r"\[(?:Image|Attachment)[^\]]*\]", message, re.I)]
+    summary["initial_request"] = meaningful_requests[0] if meaningful_requests else (user_messages[0] if user_messages else "")
+    summary["latest_request"] = meaningful_requests[-1] if meaningful_requests else (user_messages[-1] if user_messages else "")
+    summary["recent_requests"] = (meaningful_requests or user_messages)[-3:]
+    summary["last_assistant_text"] = assistant_messages[-1] if assistant_messages else ""
+    if latest_todo and latest_todo_line > latest_user_line:
+        open_tasks = parse_open_tasks(latest_todo)
+        summary["open_tasks"] = open_tasks[:20]
+        if "Remaining items: none" in latest_todo or re.search(r"\b0 open\b", latest_todo):
+            summary["todo_state"] = "complete"
+        elif open_tasks or "[pending]" in latest_todo or "[in_progress]" in latest_todo:
+            summary["todo_state"] = "open"
+    summary["workspace_claim_names"] = sorted(claim_names)
+    return summary
+
+
+def proc_ppid(proc_dir: Path) -> int:
+    try:
+        stat = (proc_dir / "stat").read_text()
+        rest = stat[stat.rfind(")") + 2 :].split()
+        return int(rest[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def top_level_omp_processes(proc_root: Path = Path("/proc")) -> list[dict[str, Any]]:
+    excluded = {"acp", "agents", "auth-broker", "auth-gateway", "bench", "commit", "completions", "config", "dry-balance", "gallery", "gc", "grep", "grievances", "install", "models", "plugin", "read", "say", "search", "setup", "shell", "ssh", "stats", "tiny-models", "token", "ttsr", "update", "usage", "worktree"}
+    results: list[dict[str, Any]] = []
+    try:
+        candidates = list(proc_root.iterdir())
+    except OSError:
+        return []
+    for proc in candidates:
+        if not proc.name.isdigit():
+            continue
+        try:
+            argv = [part.decode(errors="replace") for part in (proc / "cmdline").read_bytes().split(b"\0") if part]
+        except (OSError, PermissionError):
+            continue
+        executable = Path(argv[0]).name if argv else ""
+        if executable not in {"omp", "omp-real", "omp-bin"}:
+            continue
+        first_arg = argv[1] if len(argv) > 1 else ""
+        if first_arg.startswith("__omp_worker") or first_arg in excluded or "-p" in argv or "--print" in argv:
+            continue
+        try:
+            tty = os.readlink(proc / "fd/0")
+        except OSError:
+            tty = ""
+        results.append(
+            {
+                "pid": int(proc.name),
+                "ppid": proc_ppid(proc),
+                "tty": tty if tty.startswith("/dev/") else "",
+                "argv": [compact(item, 500) for item in argv[:12]],
+            }
+        )
+    return sorted(results, key=lambda item: item["pid"])
+
+
+def read_breadcrumbs() -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    if not TERMINAL_ROOT.exists():
+        return result
+    for path in TERMINAL_ROOT.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            continue
+        if path.name.startswith("pts-"):
+            tty = "/dev/pts/" + path.name.removeprefix("pts-")
+        elif path.name.startswith("tmux-"):
+            tty = "/dev/" + path.name.replace("-", "/", 1)
+        else:
+            continue
+        result[tty] = {"cwd": lines[0] if lines else "", "session_path": lines[1] if len(lines) > 1 else ""}
+    return result
+
+
+def tmux_panes() -> dict[str, dict[str, Any]]:
+    result = run(
+        ["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_name}\t#{pane_id}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return {}
+    panes: dict[str, dict[str, Any]] = {}
+    for line in result.stdout.splitlines():
+        fields = line.split("\t", 7)
+        if len(fields) != 8:
+            continue
+        session, window, pane_id, tty, pane_pid, command, cwd, title = fields
+        panes[tty] = {
+            "tmux_session": session,
+            "tmux_window": window,
+            "tmux_target": f"{session}:{window}",
+            "pane_id": pane_id,
+            "pane_pid": int(pane_pid or 0),
+            "pane_command": command,
+            "cwd": cwd,
+            "pane_title": compact(title, 240),
+        }
+    return panes
+
+
+def load_registry() -> dict[str, Any]:
+    value = load_json(REGISTRY_PATH, {"version": 1, "agents": {}})
+    if not isinstance(value, dict) or not isinstance(value.get("agents"), dict):
+        raise LifecycleError(f"Invalid Realm registry structure: {REGISTRY_PATH}")
+    return value
+
+
+def load_workspace() -> dict[str, Any]:
+    value = load_json(WORKSPACE_PATH, {})
+    if not isinstance(value, dict):
+        raise LifecycleError(f"Invalid workspace registry structure: {WORKSPACE_PATH}")
+    for owner, record in value.items():
+        if not isinstance(owner, str) or not owner or not isinstance(record, dict):
+            raise LifecycleError(f"Invalid workspace owner record: {owner!r}")
+        claims = record.get("claims")
+        if not isinstance(claims, list) or any(not isinstance(item, str) or not item for item in claims):
+            raise LifecycleError(f"Invalid workspace claims for owner: {owner}")
+        generation = record.get("generation")
+        if generation is not None and (not isinstance(generation, str) or not generation):
+            raise LifecycleError(f"Invalid workspace generation for owner: {owner}")
+    return value
+
+
+def pid_session_path(process: dict[str, Any], breadcrumbs: dict[str, dict[str, str]]) -> str:
+    breadcrumb = breadcrumbs.get(process.get("tty", ""), {})
+    path = str(breadcrumb.get("session_path") or "")
+    if path:
+        return path
+    argv = process.get("argv", [])
+    for index, item in enumerate(argv[:-1]):
+        if item in {"--resume", "-r"}:
+            candidate = argv[index + 1]
+            if candidate.endswith(".jsonl"):
+                return candidate
+    return ""
+
+
+def working_directory(value: str) -> str:
+    if not value:
+        return str(HOME)
+    path = Path(value).expanduser()
+    if path.is_dir():
+        return str(path.resolve())
+    if path.is_file() or path.suffix:
+        return str(path.parent.resolve())
+    return str(HOME)
+
+
+def empty_thread(key: str) -> dict[str, Any]:
+    return {
+        "thread_id": key,
+        "session_id": "",
+        "session_path": "",
+        "name": "",
+        "state": "unknown",
+        "cwd": "",
+        "title": "",
+        "pids": [],
+        "ttys": [],
+        "tmux_targets": [],
+        "workspace_claims": [],
+        "fleet_claim": "",
+        "fleet_claim_generation": "",
+        "sources": [],
+        "transcript": {},
+        "importance_score": 1,
+        "importance_rationale": "Insufficient evidence; manual review required.",
+        "roi_score": 1,
+        "roi_rationale": "No grounded outcome or compounding effect identified.",
+        "recommendation": "manual_review",
+        "recovery_mode": "do_not_resume",
+        "handoff_prompt": "",
+        "risks": [],
+        "assessment_basis": "heuristic",
+    }
+
+
+def add_unique(values: list[Any], value: Any) -> None:
+    if value not in values:
+        values.append(value)
+
+
+def thread_key(session_id: str, session_path: str, fallback: str) -> str:
+    if session_id:
+        return "session:" + session_id
+    if session_path:
+        return "session-path:" + str(Path(session_path).expanduser())
+    return fallback
+
+
+def build_threads(
+    processes: list[dict[str, Any]],
+    breadcrumbs: dict[str, dict[str, str]],
+    panes: dict[str, dict[str, Any]],
+    registry: dict[str, Any],
+    workspace: dict[str, Any],
+    extractor: Callable[[Path], dict[str, Any]] = extract_session,
+) -> list[dict[str, Any]]:
+    threads: dict[str, dict[str, Any]] = {}
+    for process in processes:
+        path = pid_session_path(process, breadcrumbs)
+        sid = session_id_from_path(path)
+        key = thread_key(sid, path, f"pid:{process['pid']}")
+        thread = threads.setdefault(key, empty_thread(key))
+        thread["session_id"] = sid
+        thread["session_path"] = path
+        thread["state"] = "running"
+        add_unique(thread["pids"], process["pid"])
+        if process.get("tty"):
+            add_unique(thread["ttys"], process["tty"])
+        add_unique(thread["sources"], "process")
+        breadcrumb = breadcrumbs.get(process.get("tty", ""), {})
+        thread["cwd"] = breadcrumb.get("cwd") or thread["cwd"]
+        pane = panes.get(process.get("tty", ""), {})
+        if pane:
+            add_unique(thread["sources"], "tmux")
+            if pane.get("tmux_target"):
+                add_unique(thread["tmux_targets"], pane["tmux_target"])
+            thread["cwd"] = thread["cwd"] or pane.get("cwd", "")
+            thread["name"] = thread["name"] or pane.get("tmux_window", "")
+            thread["pane_title"] = pane.get("pane_title", "")
+    for name, entry in registry.get("agents", {}).items():
+        if not isinstance(entry, dict):
+            continue
+        sid = str(entry.get("session_id") or session_id_from_path(entry.get("session_path")))
+        path = str(entry.get("session_path") or "")
+        key = thread_key(sid, path, "fleet:" + name)
+        thread = threads.setdefault(key, empty_thread(key))
+        thread["session_id"] = sid
+        thread["session_path"] = path
+        thread["name"] = str(name)
+        thread["cwd"] = str(entry.get("cwd") or thread["cwd"])
+        if thread["state"] != "running":
+            thread["state"] = str(entry.get("state") or "unknown")
+        thread["fleet_claim"] = str(entry.get("claim") or "")
+        generation = str(entry.get("claim_generation") or "")
+        if thread["fleet_claim"] and not generation:
+            owner = thread["fleet_claim"].removeprefix("cc-")
+            record = workspace.get(owner)
+            entry_cwd = Path(str(entry.get("cwd") or HOME)).expanduser().resolve()
+            if isinstance(record, dict):
+                roots = [
+                    Path(value).expanduser().resolve()
+                    for value in record.get("claims", [])
+                    if isinstance(value, str) and value
+                ]
+                if any(entry_cwd == root or entry_cwd.is_relative_to(root) for root in roots):
+                    generation = str(record.get("generation") or "")
+        thread["fleet_claim_generation"] = generation
+        if entry.get("tmux_target"):
+            add_unique(thread["tmux_targets"], entry["tmux_target"])
+        add_unique(thread["sources"], "fleet_registry")
+    transcript_cache: dict[str, dict[str, Any]] = {}
+    for thread in threads.values():
+        path_text = thread.get("session_path", "")
+        if path_text:
+            path = Path(path_text).expanduser()
+            if path.is_file():
+                transcript = transcript_cache.setdefault(str(path), extractor(path))
+                thread["transcript"] = transcript
+                thread["title"] = transcript.get("title", "") or thread.get("pane_title", "")
+                thread["cwd"] = transcript.get("cwd", "") or thread["cwd"]
+                add_unique(thread["sources"], "transcript")
+    claim_to_thread: dict[str, dict[str, Any]] = {}
+    for thread in threads.values():
+        names = set(thread.get("transcript", {}).get("workspace_claim_names", []))
+        if thread.get("fleet_claim"):
+            names.add(thread["fleet_claim"].removeprefix("cc-"))
+        for name in names:
+            claim_to_thread[name.removeprefix("cc-")] = thread
+    for raw_name, value in workspace.items():
+        if not isinstance(value, dict):
+            continue
+        name = str(raw_name).removeprefix("cc-")
+        claim = {
+            "name": name,
+            "paths": [str(item) for item in value.get("claims", []) if isinstance(item, str)],
+            "since": str(value.get("since") or ""),
+            "updated": str(value.get("updated") or ""),
+            "generation": str(value.get("generation") or ""),
+        }
+        thread = claim_to_thread.get(name)
+        if thread is None:
+            key = "claim:" + name
+            thread = threads.setdefault(key, empty_thread(key))
+            thread["name"] = name
+            thread["state"] = "claimed"
+            thread["cwd"] = working_directory(claim["paths"][0]) if claim["paths"] else str(HOME)
+            thread["title"] = name.replace("-", " ")
+        add_unique(thread["workspace_claims"], claim)
+        add_unique(thread["sources"], "workspace_registry")
+    for thread in threads.values():
+        assess_thread(thread)
+    return sorted(threads.values(), key=thread_sort_key)
+
+
+def evidence_text(thread: dict[str, Any]) -> str:
+    transcript = thread.get("transcript", {})
+    values = [
+        thread.get("name", ""),
+        thread.get("title", ""),
+        thread.get("cwd", ""),
+        thread.get("fleet_claim", ""),
+        transcript.get("initial_request", ""),
+        transcript.get("latest_request", ""),
+        " ".join(transcript.get("open_tasks", [])),
+        " ".join(path for claim in thread.get("workspace_claims", []) for path in claim.get("paths", [])),
+    ]
+    return compact(" ".join(str(value) for value in values if value), 8000).lower()
+
+
+def assess_thread(thread: dict[str, Any]) -> None:
+    text = evidence_text(thread)
+    transcript = thread.get("transcript", {})
+    open_tasks = transcript.get("open_tasks", [])
+    complete = transcript.get("todo_state") == "complete"
+    running = bool(thread.get("pids"))
+    importance = 2
+    roi = 2
+    importance_reasons: list[str] = []
+    roi_reasons: list[str] = []
+    if re.search(r"\b(production|live|capital|security|auth|recovery|backup|deployment|webhook)\b", text):
+        importance += 2
+        importance_reasons.append("touches a live, capital, security, recovery, or production boundary")
+    if open_tasks:
+        importance += 1
+        importance_reasons.append(f"has {len(open_tasks)} explicitly open task(s)")
+    if re.search(r"\b(revenue|client|lead|sales|conversion|publish|launch|deploy|provisioning|account creation|content)\b", text):
+        roi += 2
+        roi_reasons.append("has a direct revenue, delivery, publishing, provisioning, or launch path")
+    if re.search(r"\b(reusable|system|platform|automation|skill|pipeline|registry|infrastructure|orchestrator)\b", text):
+        roi += 1
+        roi_reasons.append("can compound through reusable system leverage")
+    if re.search(r"\b(blocker|broken|failure|fix|remediation|recover|error|incident)\b", text):
+        roi += 1
+        roi_reasons.append("removes a concrete blocker or failure mode")
+    if re.search(r"\b(speculative|brainstorm|idea only|unbounded research)\b", text):
+        roi -= 1
+        roi_reasons.append("appears speculative or weakly bounded")
+    importance = max(1, min(5, importance))
+    roi = max(1, min(5, roi))
+    if complete:
+        recommendation = "archive"
+        recovery_mode = "do_not_resume"
+    elif thread.get("session_path") and (running or open_tasks):
+        recommendation = "resume_exact" if roi >= 3 else "manual_review"
+        recovery_mode = "resume_exact"
+    elif thread.get("workspace_claims") and roi >= 4:
+        recommendation = "pursue_now"
+        recovery_mode = "new_session"
+    elif running:
+        recommendation = "manual_review"
+        recovery_mode = "resume_exact" if thread.get("session_path") else "new_session"
+    else:
+        recommendation = "defer"
+        recovery_mode = "resume_exact" if thread.get("session_path") else "new_session"
+    thread["importance_score"] = importance
+    thread["importance_rationale"] = "[INFERENCE] " + ("; ".join(importance_reasons) if importance_reasons else "bounded operational importance is not yet evidenced") + "."
+    thread["roi_score"] = roi
+    thread["roi_rationale"] = "[INFERENCE] " + ("; ".join(roi_reasons) if roi_reasons else "no direct outcome or compounding path is visible in the available state") + "."
+    thread["recommendation"] = recommendation
+    thread["recovery_mode"] = recovery_mode
+    risks: list[str] = []
+    if len(thread.get("pids", [])) > 1:
+        risks.append("Multiple top-level OMP writers appear bound to one session identity.")
+    if thread.get("transcript", {}).get("parse_errors"):
+        risks.append("Transcript contains malformed or unreadable events; re-ground before acting.")
+    if not thread.get("session_path"):
+        risks.append("No exact persisted session is bound; use a fresh handoff session rather than guessing a resume target.")
+    thread["risks"] = risks
+    thread["handoff_prompt"] = make_handoff_prompt(thread)
+
+
+def make_handoff_prompt(thread: dict[str, Any]) -> str:
+    transcript = thread.get("transcript", {})
+    objective = transcript.get("latest_request") or transcript.get("initial_request") or thread.get("title") or thread.get("name")
+    tasks = transcript.get("open_tasks", [])
+    claims = [path for claim in thread.get("workspace_claims", []) for path in claim.get("paths", [])]
+    exact = thread.get("recovery_mode") == "resume_exact" and thread.get("session_path")
+    opening = (
+        f"Resume the exact persisted OMP thread {thread.get('session_id') or thread.get('session_path')}."
+        if exact
+        else f"Pursue this bounded continuation as a fresh OMP thread: {compact(str(objective), 600)}"
+    )
+    lines = [opening]
+    if thread.get("cwd"):
+        lines.append(f"Work from {thread['cwd']}.")
+    if objective:
+        lines.append(f"User objective: {compact(str(objective), 1200)}")
+    if tasks:
+        lines.append("Known open work: " + "; ".join(tasks[:8]) + ".")
+    if claims:
+        lines.append("Claimed components: " + ", ".join(claims[:12]) + ".")
+    lines.extend(
+        [
+            "Re-ground the latest matched tool result, current files, live services, workspace claims, and repository status before editing.",
+            "Do not redo completed stages, do not trust stale narrative over durable state, and preserve unrelated user/session changes.",
+            f"Priority lens: importance {thread.get('importance_score')}/5 — {thread.get('importance_rationale')} ROI {thread.get('roi_score')}/5 — {thread.get('roi_rationale')}",
+            "Prefer the smallest action that closes the current bottleneck or creates reusable leverage. Reject scope expansion that does not improve the stated outcome.",
+            "Completion contract: finish the bounded thread end to end, exercise the changed behavior, update any existing audit in place, and commit/push only task-owned verified changes when repository policy permits.",
+        ]
+    )
+    if thread.get("risks"):
+        lines.append("Known risks: " + " ".join(thread["risks"]))
+    return "\n".join(lines)
+
+
+def thread_sort_key(thread: dict[str, Any]) -> tuple[int, int, int, str]:
+    rank = {"pursue_now": 0, "resume_exact": 1, "manual_review": 2, "defer": 3, "archive": 4}
+    return (rank.get(thread.get("recommendation"), 9), -int(thread.get("roi_score", 0)), -int(thread.get("importance_score", 0)), thread.get("thread_id", ""))
+
+
+def inventory() -> dict[str, Any]:
+    processes = top_level_omp_processes()
+    threads = build_threads(processes, read_breadcrumbs(), tmux_panes(), load_registry(), load_workspace())
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "captured_at": utc_now(),
+        "host": os.uname().nodename,
+        "top_level_omp_count": len(processes),
+        "threads": threads,
+        "exclusions": "OMP workers, print-mode jobs, auth brokers/gateways, and other OMP service subcommands are intentionally excluded.",
+    }
+
+
+def validate_assessment(path: Path, thread_ids: set[str]) -> dict[str, dict[str, Any]]:
+    payload = load_json(path, None)
+    if not isinstance(payload, dict) or not isinstance(payload.get("threads"), list):
+        raise LifecycleError("Assessment must be an object containing a threads list")
+    result: dict[str, dict[str, Any]] = {}
+    for item in payload["threads"]:
+        if not isinstance(item, dict) or not isinstance(item.get("thread_id"), str):
+            raise LifecycleError("Every assessment row needs a thread_id")
+        thread_id = item["thread_id"]
+        if thread_id not in thread_ids:
+            raise LifecycleError(f"Assessment references unknown or stale thread: {thread_id}")
+        for score_field in ("importance_score", "roi_score"):
+            if score_field in item and (not isinstance(item[score_field], int) or not 1 <= item[score_field] <= 5):
+                raise LifecycleError(f"{score_field} must be an integer from 1 to 5 for {thread_id}")
+        if item.get("recommendation") not in RECOMMENDATIONS:
+            raise LifecycleError(f"Invalid recommendation for {thread_id}")
+        if item.get("recovery_mode") not in RECOVERY_MODES:
+            raise LifecycleError(f"Invalid recovery_mode for {thread_id}")
+        for field in ("importance_rationale", "roi_rationale", "handoff_prompt"):
+            if not isinstance(item.get(field), str) or not item[field].strip():
+                raise LifecycleError(f"Assessment field {field} is required for {thread_id}")
+        result[thread_id] = item
+    return result
+
+
+def apply_assessment(payload: dict[str, Any], path: Path) -> None:
+    rows = validate_assessment(path, {thread["thread_id"] for thread in payload["threads"]})
+    for thread in payload["threads"]:
+        row = rows.get(thread["thread_id"])
+        if not row:
+            continue
+        for field in ("importance_score", "importance_rationale", "roi_score", "roi_rationale", "recommendation", "recovery_mode", "handoff_prompt"):
+            thread[field] = row[field]
+        thread["assessment_basis"] = "adversarial_agent_review"
+        if isinstance(row.get("risks"), list):
+            thread["risks"] = [compact(str(value), 500) for value in row["risks"]]
+    payload["threads"].sort(key=thread_sort_key)
+
+
+def fsync_path(path: Path) -> None:
+    with path.open("rb") as handle:
+        os.fsync(handle.fileno())
+
+
+def atomic_json(path: Path, payload: Any, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temp = path.with_name(path.name + f".tmp-{os.getpid()}")
+    with temp.open("w") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temp, mode)
+    os.replace(temp, path)
+    directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# OMP shutdown handoffs — {payload['snapshot_id']}",
+        "",
+        f"Captured: `{payload['captured_at']}`  ",
+        f"Top-level OMP processes: **{payload['top_level_omp_count']}**  ",
+        f"Status: **{payload.get('status', 'captured')}**",
+        "",
+        "| Thread | State | Importance | ROI | Decision | Recovery |",
+        "|---|---:|---:|---:|---|---|",
+    ]
+    for thread in payload["threads"]:
+        label = (thread.get("title") or thread.get("name") or thread["thread_id"]).replace("|", "\\|")
+        lines.append(f"| {label} | {thread.get('state')} | {thread.get('importance_score')}/5 | {thread.get('roi_score')}/5 | {thread.get('recommendation')} | {thread.get('recovery_mode')} |")
+    for thread in payload["threads"]:
+        label = thread.get("title") or thread.get("name") or thread["thread_id"]
+        lines.extend(
+            [
+                "",
+                f"## {label}",
+                "",
+                f"- Thread: `{thread['thread_id']}`",
+                f"- Session: `{thread.get('session_id') or 'none'}`",
+                f"- CWD: `{thread.get('cwd') or 'unknown'}`",
+                f"- Importance: {thread.get('importance_score')}/5 — {thread.get('importance_rationale')}",
+                f"- ROI: {thread.get('roi_score')}/5 — {thread.get('roi_rationale')}",
+                f"- Recommendation: **{thread.get('recommendation')}** via `{thread.get('recovery_mode')}`",
+            ]
+        )
+        request = thread.get("transcript", {}).get("latest_request")
+        if request:
+            lines.append(f"- Latest user objective: {request}")
+        tasks = thread.get("transcript", {}).get("open_tasks", [])
+        if tasks:
+            lines.append("- Open work: " + "; ".join(tasks))
+        if thread.get("risks"):
+            lines.append("- Risks: " + " ".join(thread["risks"]))
+        lines.extend(["", "### Handoff prompt", "", "```text", thread.get("handoff_prompt", ""), "```"])
+    return "\n".join(lines) + "\n"
+
+
+def persist_snapshot(payload: dict[str, Any], *, status: str) -> Path:
+    STATE_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE_ROOT, 0o700)
+    snapshot_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    snapshot_dir = STATE_ROOT / snapshot_id
+    snapshot_dir.mkdir(mode=0o700)
+    payload["snapshot_id"] = snapshot_id
+    payload["status"] = status
+    snapshot_path = snapshot_dir / "snapshot.json"
+    atomic_json(snapshot_path, payload)
+    handoffs_path = snapshot_dir / "handoffs.md"
+    with handoffs_path.open("w") as handle:
+        handle.write(markdown(payload))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(handoffs_path, 0o600)
+    fsync_path(snapshot_path)
+    directory_fd = os.open(snapshot_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    atomic_json(STATE_ROOT / "latest.json", {"snapshot_id": snapshot_id, "snapshot_path": str(snapshot_path), "captured_at": payload["captured_at"]})
+    return snapshot_path
+
+
+def resolve_snapshot(value: str) -> Path:
+    if value == "latest":
+        pointer = load_json(STATE_ROOT / "latest.json", {})
+        value = str(pointer.get("snapshot_path") or "")
+    candidate = Path(value).expanduser()
+    if candidate.is_dir():
+        candidate = candidate / "snapshot.json"
+    if not candidate.is_file():
+        candidate = STATE_ROOT / value / "snapshot.json"
+    if not candidate.is_file():
+        raise LifecycleError(f"Shutdown snapshot not found: {value or 'latest'}")
+    return candidate.resolve()
+
+
+def append_event(snapshot_path: Path, event: dict[str, Any]) -> None:
+    path = snapshot_path.parent / "resume-events.jsonl"
+    with path.open("a") as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(path, 0o600)
+
+
+def ancestor_chain(pid: int | None = None, proc_root: Path = Path("/proc")) -> list[int]:
+    current = pid or os.getpid()
+    chain: list[int] = []
+    seen: set[int] = set()
+    while current > 1 and current not in seen:
+        seen.add(current)
+        chain.append(current)
+        current = proc_ppid(proc_root / str(current))
+    return chain
+
+
+def process_start_time(pid: int) -> str | None:
+    try:
+        rest = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        return rest[19]
+    except (OSError, IndexError):
+        return None
+
+
+def process_identity_state(pid: int, start_time: str) -> str:
+    try:
+        rest = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        current = rest[19]
+    except FileNotFoundError:
+        return "dead"
+    except (OSError, IndexError):
+        return "unknown"
+    return "alive" if current == start_time else "dead"
+
+
+def same_process_alive(pid: int, start_time: str) -> bool:
+    return process_identity_state(pid, start_time) == "alive"
+
+
+def wait_same_process_dead(pid: int, start_time: str, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if process_identity_state(pid, start_time) == "dead":
+            return True
+        time.sleep(0.1)
+    return process_identity_state(pid, start_time) == "dead"
+
+
+def is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def wait_dead(pid: int, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not is_alive(pid):
+            return True
+        time.sleep(0.1)
+    return not is_alive(pid)
+
+
+def stop_pid(pid: int, tmux_target: str, *, force: bool, runner: Callable[..., subprocess.CompletedProcess[str]] = run) -> dict[str, Any]:
+    result = {"pid": pid, "tmux_target": tmux_target, "status": "already_stopped"}
+    if not is_alive(pid):
+        return result
+    if tmux_target:
+        runner(["tmux", "send-keys", "-t", tmux_target, "C-c"], check=False)
+        time.sleep(0.35)
+        runner(["tmux", "send-keys", "-t", tmux_target, "/exit", "Enter"], check=False)
+        if wait_dead(pid, 5.0):
+            result["status"] = "clean_exit"
+            return result
+    try:
+        os.kill(pid, signal.SIGINT)
+    except ProcessLookupError:
+        result["status"] = "clean_exit"
+        return result
+    if wait_dead(pid, 1.5):
+        result["status"] = "sigint_exit"
+        return result
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        result["status"] = "sigint_exit"
+        return result
+    if wait_dead(pid, 2.5):
+        result["status"] = "sigterm_exit"
+        return result
+    if force:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            result["status"] = "sigterm_exit"
+            return result
+        if wait_dead(pid, 2.5):
+            result["status"] = "sigkill_exit"
+        else:
+            result["status"] = "survived"
+    else:
+        result["status"] = "survived"
+    return result
+
+
+def release_claim_names(
+    claims: Iterable[tuple[str, str]],
+    runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+) -> list[dict[str, str]]:
+    runner = runner or run
+    released: list[dict[str, str]] = []
+    unique: dict[str, str] = {}
+    conflicts: set[str] = set()
+    for name, generation in claims:
+        if not name or not generation or (name in unique and unique[name] != generation):
+            conflicts.add(name or "<missing>")
+        else:
+            unique[name] = generation
+    for name in sorted(conflicts):
+        released.append({"name": name, "status": "failed", "detail": "ambiguous claim generation"})
+    for name in sorted(set(unique) - conflicts):
+        try:
+            result = runner(
+                [WORKSPACE_BIN, "release-if", name, unique[name]],
+                check=False,
+            )
+            released.append({
+                "name": name,
+                "status": "released" if result.returncode == 0 else "failed",
+                "detail": compact(result.stderr or result.stdout, 500),
+            })
+        except OSError as exc:
+            released.append({"name": name, "status": "failed", "detail": compact(str(exc), 500)})
+    return released
+
+
+def rollback_claim_names(claims: Iterable[tuple[str, str]], context: str) -> list[dict[str, str]]:
+    receipts = release_claim_names(claims)
+    failed = [receipt["name"] for receipt in receipts if receipt["status"] != "released"]
+    if failed:
+        raise LifecycleError(f"{context}; claim rollback failed for: {', '.join(failed)}")
+    return receipts
+
+
+def release_claims(
+    payload: dict[str, Any],
+    runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+    *,
+    retain_thread_ids: set[str] | None = None,
+) -> list[dict[str, str]]:
+    runner = runner or run
+    retain_thread_ids = retain_thread_ids or set()
+    claims: set[tuple[str, str]] = set()
+    retained_claims: set[tuple[str, str]] = set()
+    for thread in payload["threads"]:
+        target = retained_claims if thread["thread_id"] in retain_thread_ids else claims
+        if not thread.get("pids"):
+            continue
+        for claim in thread.get("workspace_claims", []):
+            target.add((str(claim["name"]), str(claim.get("generation") or "")))
+        if thread.get("fleet_claim"):
+            target.add((
+                str(thread["fleet_claim"]).removeprefix("cc-"),
+                str(thread.get("fleet_claim_generation") or ""),
+            ))
+    retained_names = {name for name, _ in retained_claims}
+    return release_claim_names(
+        {(name, generation) for name, generation in claims if name not in retained_names},
+        runner,
+    )
+
+
+def update_fleet_shutdown(payload: dict[str, Any], *, retain_thread_ids: set[str] | None = None) -> None:
+    retain_thread_ids = retain_thread_ids or set()
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(REGISTRY_PATH.parent, 0o700)
+    lock_path = REGISTRY_PATH.parent / "omp-fleet.lock"
+    with lock_path.open("a+") as lock_handle:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        registry = load_registry()
+        live_session_ids = {
+            thread["session_id"]
+            for thread in payload["threads"]
+            if thread.get("pids") and thread.get("session_id") and thread["thread_id"] not in retain_thread_ids
+        }
+        changed = False
+        for entry in registry.get("agents", {}).values():
+            if entry.get("session_id") in live_session_ids:
+                entry["state"] = "stopped"
+                entry["stopped_at"] = utc_now()
+                entry["shutdown_snapshot_id"] = payload["snapshot_id"]
+                changed = True
+        if changed:
+            atomic_json(REGISTRY_PATH, registry)
+
+
+def stop_all(payload: dict[str, Any], snapshot_path: Path, *, force: bool, release: bool) -> dict[str, Any]:
+    target_rows: list[tuple[int, str, str]] = []
+    for thread in payload["threads"]:
+        target = thread.get("tmux_targets", [""])[0] if thread.get("tmux_targets") else ""
+        for pid in thread.get("pids", []):
+            target_rows.append((int(pid), target, thread["thread_id"]))
+    target_pids = {row[0] for row in target_rows}
+    caller_pid = next((pid for pid in ancestor_chain() if pid in target_pids), 0)
+    caller_thread_id = next((thread_id for pid, _, thread_id in target_rows if pid == caller_pid), "")
+    caller_start_time = process_start_time(caller_pid) if caller_pid else None
+    ordered = [row for row in target_rows if row[0] != caller_pid]
+    outcomes: list[dict[str, Any]] = []
+    for pid, target, thread_id in ordered:
+        outcome = stop_pid(pid, target, force=force)
+        outcome["thread_id"] = thread_id
+        outcomes.append(outcome)
+    survivors = [row["pid"] for row in outcomes if row["status"] == "survived"]
+    if caller_pid:
+        survivors.append(caller_pid)
+    retained_thread_ids = {
+        thread_id
+        for pid, _, thread_id in target_rows
+        if pid in survivors
+    }
+    claim_results = release_claims(payload, retain_thread_ids=retained_thread_ids) if release else []
+    update_fleet_shutdown(payload, retain_thread_ids=retained_thread_ids)
+    result_path = snapshot_path.parent / "shutdown-result.json"
+    caller_status = "confirmation_pending" if caller_pid and caller_start_time else (
+        "identity_unavailable_claim_retained" if caller_pid else "not_an_omp_ancestor"
+    )
+    report = {
+        "snapshot_id": payload["snapshot_id"],
+        "finished_at": utc_now(),
+        "outcomes": outcomes,
+        "claim_results": claim_results,
+        "survivors": sorted(set(survivors)),
+        "caller_pid": caller_pid,
+        "caller_thread_id": caller_thread_id,
+        "caller_status": caller_status,
+    }
+    atomic_json(result_path, report)
+    if caller_pid and caller_start_time:
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "confirm-caller",
+            "--pid",
+            str(caller_pid),
+            "--start-time",
+            caller_start_time,
+            "--thread-id",
+            caller_thread_id,
+            "--snapshot",
+            str(snapshot_path),
+            "--result",
+            str(result_path),
+        ]
+        if force:
+            command.append("--force")
+        if release:
+            command.append("--release")
+        try:
+            subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            report["caller_status"] = "confirmer_launch_failed_claim_retained"
+            report["caller_error"] = compact(str(exc), 500)
+            atomic_json(result_path, report)
+    return report
+
+
+def cmd_confirm_caller(args: argparse.Namespace) -> int:
+    snapshot_path = Path(args.snapshot).expanduser()
+    result_path = Path(args.result).expanduser()
+    with lifecycle_operation_lock():
+        identity_state = process_identity_state(args.pid, args.start_time)
+        if identity_state == "alive":
+            try:
+                os.kill(args.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            if not wait_same_process_dead(args.pid, args.start_time, 2.5) and args.force:
+                try:
+                    os.kill(args.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                wait_same_process_dead(args.pid, args.start_time, 2.5)
+        identity_state = process_identity_state(args.pid, args.start_time)
+        dead = identity_state == "dead"
+        report = load_json(result_path, {})
+        if not isinstance(report, dict):
+            raise LifecycleError(f"Invalid shutdown result: {result_path}")
+        if dead:
+            payload = load_json(snapshot_path, None)
+            if not isinstance(payload, dict) or not isinstance(payload.get("threads"), list):
+                raise LifecycleError(f"Invalid shutdown snapshot: {snapshot_path}")
+            caller_rows = [
+                thread for thread in payload["threads"] if thread.get("thread_id") == args.thread_id
+            ]
+            claim_results = (
+                release_claims({"threads": caller_rows}, retain_thread_ids=set())
+                if args.release else []
+            )
+            report.setdefault("claim_results", []).extend(claim_results)
+            failed = [row["name"] for row in claim_results if row["status"] != "released"]
+            retain_ids = {
+                str(thread.get("thread_id"))
+                for thread in payload["threads"]
+                if thread.get("thread_id") != args.thread_id
+            }
+            update_fleet_shutdown(payload, retain_thread_ids=retain_ids)
+            report["survivors"] = [
+                pid for pid in report.get("survivors", []) if int(pid) != args.pid
+            ]
+            report["caller_status"] = (
+                "confirmed_dead_claim_release_failed" if failed else "confirmed_dead"
+            )
+        else:
+            report["caller_status"] = (
+                "identity_unknown_claim_retained"
+                if identity_state == "unknown"
+                else "survived_claim_retained"
+            )
+        report["finished_at"] = utc_now()
+        atomic_json(result_path, report)
+    return 0
+
+
+def selected_threads(payload: dict[str, Any], selection: Iterable[str]) -> list[dict[str, Any]]:
+    by_id = {thread["thread_id"]: thread for thread in payload["threads"]}
+    rows: list[dict[str, Any]] = []
+    for value in selection:
+        value = value.strip()
+        if not value:
+            continue
+        thread = by_id.get(value)
+        if thread is None:
+            raise LifecycleError(f"Unknown thread selection: {value}")
+        if thread.get("recommendation") == "archive" or thread.get("recovery_mode") == "do_not_resume":
+            raise LifecycleError(f"Thread is archived and cannot be resumed without editing its recorded decision: {value}")
+        rows.append(thread)
+    return rows
+
+
+def safe_name(thread: dict[str, Any], used: set[str]) -> str:
+    base = thread.get("name") or thread.get("title") or thread.get("session_id", "")[:8] or "handoff"
+    base = re.sub(r"[^A-Za-z0-9_.-]+", "-", base).strip("-.").lower()[:36] or "handoff"
+    candidate = base
+    counter = 2
+    while candidate in used:
+        suffix = f"-{counter}"
+        candidate = base[: 48 - len(suffix)] + suffix
+        counter += 1
+    used.add(candidate)
+    return candidate
+
+
+def start_command(thread: dict[str, Any], name: str) -> list[str]:
+    command = [REALM_SESSION_BIN, "agent", "start", name, "--cwd", working_directory(thread.get("cwd") or str(HOME))]
+    resume_target = thread.get("session_id") or thread.get("session_path")
+    if thread.get("recovery_mode") == "resume_exact" and resume_target:
+        command.extend(["--resume", resume_target])
+    claims = thread.get("workspace_claims", [])
+    claim_name = claims[0]["name"] if claims else str(thread.get("fleet_claim") or "").removeprefix("cc-")
+    generation = (
+        str(claims[0].get("generation") or "")
+        if claims
+        else str(thread.get("fleet_claim_generation") or "")
+    )
+    if claim_name:
+        if not generation:
+            raise LifecycleError(f"Workspace claim {claim_name} has no bound generation")
+        command.extend(["--claim", claim_name, "--claim-generation", generation])
+    command.extend(["--prompt", thread["handoff_prompt"]])
+    return command
+
+
+def claim_thread(thread: dict[str, Any]) -> tuple[bool, str, list[tuple[str, str]]]:
+    claims = thread.get("workspace_claims", [])
+    if not claims and thread.get("fleet_claim"):
+        claims = [{
+            "name": str(thread["fleet_claim"]).removeprefix("cc-"),
+            "paths": [working_directory(thread.get("cwd") or str(HOME))],
+            "generation": str(thread.get("fleet_claim_generation") or ""),
+        }]
+    grouped: dict[str, dict[str, Any]] = {}
+    for claim in claims:
+        name = str(claim["name"])
+        generation = str(claim.get("generation") or "")
+        record = grouped.setdefault(name, {"paths": set(), "generation": generation})
+        if record["generation"] != generation:
+            return False, f"Conflicting claim generations for {name}", []
+        record["paths"].update(str(path) for path in claim.get("paths", []))
+    acquired: list[tuple[str, str]] = []
+    for name in sorted(grouped):
+        paths = sorted(grouped[name]["paths"])
+        prior_generation = grouped[name]["generation"]
+        if not paths or not prior_generation:
+            rollback_claim_names(acquired, f"Claim {name} lacks paths or generation")
+            return False, f"Claim {name} lacks paths or generation", []
+        try:
+            result = run(
+                [WORKSPACE_BIN, "claim-restore", name, prior_generation, *paths],
+                check=False,
+            )
+        except OSError as exc:
+            rollback_claim_names(acquired, f"Claim restoration failed for {name}")
+            return False, compact(str(exc), 1000), []
+        if result.returncode != 0:
+            rollback_claim_names(acquired, f"Claim restoration failed for {name}")
+            return False, compact(result.stderr or result.stdout, 1000), []
+        created = [
+            line.strip()
+            for line in result.stdout.splitlines()
+            if line.strip().startswith("claim_created=")
+        ]
+        generations = [
+            line.strip().removeprefix("claim_generation=")
+            for line in result.stdout.splitlines()
+            if line.strip().startswith("claim_generation=")
+        ]
+        if created not in (["claim_created=true"], ["claim_created=false"]) or len(generations) != 1:
+            rollback_claim_names(acquired, f"Claim provenance is ambiguous for {name}")
+            return False, f"Claim provenance is ambiguous for {name}; claim retained", []
+        generation = generations[0]
+        if created == ["claim_created=false"] and generation != prior_generation:
+            rollback_claim_names(acquired, f"Claim generation changed for {name}")
+            return False, f"Claim generation changed for {name}", []
+        if created == ["claim_created=true"]:
+            acquired.append((name, generation))
+        for claim in thread.get("workspace_claims", []):
+            if str(claim.get("name")) == name:
+                claim["generation"] = generation
+        if str(thread.get("fleet_claim") or "").removeprefix("cc-") == name:
+            thread["fleet_claim_generation"] = generation
+    return True, "", acquired
+
+
+def active_session_ids() -> set[str]:
+    breadcrumbs = read_breadcrumbs()
+    return {session_id_from_path(pid_session_path(process, breadcrumbs)) for process in top_level_omp_processes()} - {""}
+
+
+def realm_start_failure_allows_claim_rollback(detail: str) -> bool:
+    lower = detail.lower()
+    if "writer death not confirmed" in lower:
+        return False
+    return "writer death confirmed" in lower or any(
+        marker in lower
+        for marker in (
+            "agent name must be",
+            "already exists",
+            "managed omp fleet limit reached",
+            "host omp process limit reached",
+            "memory is available",
+            "working directory does not exist",
+            "no persisted omp session matches",
+            "ambiguous omp session",
+            "session already has a registered writer",
+            "session already has active omp writer",
+            "workspace claim",
+        )
+    )
+
+
+def retained_claims(acquired: list[tuple[str, str]], detail: str) -> list[dict[str, str]]:
+    return [
+        {
+            "name": name,
+            "generation": generation,
+            "status": "retained",
+            "detail": detail,
+        }
+        for name, generation in acquired
+    ]
+
+
+def resume_selected(snapshot_path: Path, payload: dict[str, Any], rows: list[dict[str, Any]], *, dry_run: bool, max_starts: int) -> dict[str, Any]:
+    if dry_run:
+        return _resume_selected_locked(
+            snapshot_path, payload, rows,
+            dry_run=True, max_starts=max_starts, operation_lock_fd=None,
+        )
+    with lifecycle_operation_lock() as operation_lock_fd:
+        return _resume_selected_locked(
+            snapshot_path, payload, rows,
+            dry_run=False, max_starts=max_starts, operation_lock_fd=operation_lock_fd,
+        )
+
+
+def _resume_selected_locked(
+    snapshot_path: Path,
+    payload: dict[str, Any],
+    rows: list[dict[str, Any]],
+    *,
+    dry_run: bool,
+    max_starts: int,
+    operation_lock_fd: int | None,
+) -> dict[str, Any]:
+    active_ids = active_session_ids()
+    capacity = max(0, min(max_starts, MAX_TOP_LEVEL_OMP - len(top_level_omp_processes())))
+    used: set[str] = set()
+    results: list[dict[str, Any]] = []
+    started = 0
+    for thread in rows:
+        name = safe_name(thread, used)
+        command = start_command(thread, name)
+        row = {"thread_id": thread["thread_id"], "name": name, "command": shlex.join(command)}
+        if thread.get("session_id") in active_ids:
+            row["status"] = "already_running"
+        elif started >= capacity:
+            row["status"] = "queued_capacity"
+        elif dry_run:
+            row["status"] = "dry_run"
+            started += 1
+        else:
+            claimed, detail, acquired = claim_thread(thread)
+            if not claimed:
+                row["status"] = "claim_failed"
+                row["detail"] = detail
+            else:
+                command = start_command(thread, name)
+                row["command"] = shlex.join(command)
+                try:
+                    if operation_lock_fd is None:
+                        raise LifecycleError("Missing lifecycle operation lock for OMP launch")
+                    result = run_with_operation_lock_handoff(command, operation_lock_fd)
+                except (OSError, ValueError) as exc:
+                    row["status"] = "start_failed"
+                    row["detail"] = compact(str(exc), 1600)
+                    row["claim_rollback"] = rollback_claim_names(acquired, f"Launch failed for {name}")
+                except Exception as exc:
+                    row["status"] = "start_failed"
+                    row["detail"] = compact(str(exc), 1600)
+                    row["claim_rollback"] = retained_claims(
+                        acquired,
+                        f"Writer death is unconfirmed after launch exception for {name}",
+                    )
+                else:
+                    row["status"] = "started" if result.returncode == 0 else "start_failed"
+                    row["detail"] = compact(result.stdout + "\n" + result.stderr, 1600)
+                    if result.returncode == 0:
+                        started += 1
+                    elif realm_start_failure_allows_claim_rollback(row["detail"]):
+                        row["claim_rollback"] = rollback_claim_names(acquired, f"Launch failed for {name}")
+                    else:
+                        row["claim_rollback"] = retained_claims(
+                            acquired,
+                            f"Writer death is unconfirmed after launch failure for {name}",
+                        )
+        results.append(row)
+    event = {"event": "resume", "at": utc_now(), "dry_run": dry_run, "results": results}
+    if not dry_run:
+        append_event(snapshot_path, event)
+    return {"snapshot_id": payload.get("snapshot_id"), "capacity": capacity, "results": results}
+
+
+def continue_thread(thread_id: str, mode: str, *, dry_run: bool, max_starts: int) -> dict[str, Any]:
+    with lifecycle_operation_lock() as operation_lock_fd:
+        return _continue_thread_locked(
+            thread_id,
+            mode,
+            dry_run=dry_run,
+            max_starts=max_starts,
+            operation_lock_fd=operation_lock_fd,
+        )
+
+
+def _continue_thread_locked(
+    thread_id: str,
+    mode: str,
+    *,
+    dry_run: bool,
+    max_starts: int,
+    operation_lock_fd: int,
+) -> dict[str, Any]:
+    if mode not in {"exact", "fresh"}:
+        raise LifecycleError("Continuation mode must be exact or fresh")
+    STATE_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path = STATE_ROOT / "continue.lock"
+    reservations_path = STATE_ROOT / "continue-reservations.json"
+    with lock_path.open("a+") as lock_handle:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        now = time.time()
+        saved = load_json(reservations_path, {})
+        if not isinstance(saved, dict):
+            raise LifecycleError(f"Invalid continuation reservation structure: {reservations_path}")
+        reservations: dict[str, dict[str, Any]] = {}
+        for key, value in saved.items():
+            if not isinstance(key, str) or not key or not isinstance(value, dict):
+                raise LifecycleError(f"Invalid continuation reservation row: {reservations_path}")
+            created_at = value.get("created_at")
+            mode_value = value.get("mode")
+            expires_value = value.get("expires_at")
+            if (
+                not isinstance(created_at, str)
+                or not created_at
+                or mode_value not in {"exact", "fresh"}
+                or isinstance(expires_value, bool)
+                or not isinstance(expires_value, (int, float))
+                or not math.isfinite(float(expires_value))
+                or float(expires_value) <= 0
+            ):
+                raise LifecycleError(f"Invalid continuation reservation value: {reservations_path}")
+            if float(expires_value) > now:
+                reservations[key] = value
+        payload = inventory()
+        running_thread_ids = {
+            str(item.get("thread_id") or "")
+            for item in payload.get("threads", [])
+            if item.get("pids")
+        }
+        reconciled = {key: value for key, value in reservations.items() if key not in running_thread_ids}
+        if reconciled != reservations:
+            reservations = reconciled
+            atomic_json(reservations_path, reservations)
+        thread = next((item for item in payload["threads"] if item["thread_id"] == thread_id), None)
+        if thread is None:
+            raise LifecycleError(f"Unknown current thread: {thread_id}")
+        transcript = thread.get("transcript", {})
+        if transcript.get("todo_state") == "complete":
+            raise LifecycleError("Completed work cannot be resumed; define a fresh bounded workstream instead")
+        if thread.get("pids"):
+            if thread_id in reservations:
+                reservations.pop(thread_id, None)
+                atomic_json(reservations_path, reservations)
+            return {
+                "snapshot_id": None,
+                "capacity": 0,
+                "results": [{
+                    "thread_id": thread_id,
+                    "name": thread.get("name") or thread.get("title") or "workstream",
+                    "status": "already_running",
+                    "tmux_targets": thread.get("tmux_targets", []),
+                }],
+            }
+        if not dry_run and thread_id in reservations:
+            raise LifecycleError("Continuation is already reserved; refresh after the current launch settles")
+        if not dry_run:
+            launch_capacity = max(0, MAX_TOP_LEVEL_OMP - int(payload.get("top_level_omp_count") or 0))
+            if len(reservations) >= launch_capacity:
+                raise LifecycleError("OMP launch capacity is reserved or exhausted")
+        if mode == "exact":
+            if not thread.get("session_path") or not thread.get("session_id"):
+                raise LifecycleError("Exact continuation requires a persisted session identity")
+            thread["recommendation"] = "resume_exact"
+            thread["recovery_mode"] = "resume_exact"
+        else:
+            if not thread.get("workspace_claims") and not thread.get("fleet_claim"):
+                raise LifecycleError("Fresh continuation requires a current workspace or fleet claim")
+            thread["recommendation"] = "pursue_now"
+            thread["recovery_mode"] = "new_session"
+        thread["handoff_prompt"] = make_handoff_prompt(thread)
+        payload["threads"].sort(key=thread_sort_key)
+        status = "portfolio_resume_preview" if dry_run else "portfolio_resume"
+        snapshot_path = persist_snapshot(payload, status=status)
+        if not dry_run:
+            reservations[thread_id] = {
+                "created_at": utc_now(),
+                "expires_at": now + CONTINUATION_RESERVATION_TTL_S,
+                "mode": mode,
+            }
+            atomic_json(reservations_path, reservations)
+        try:
+            result = _resume_selected_locked(
+                snapshot_path,
+                payload,
+                [thread],
+                dry_run=dry_run,
+                max_starts=max_starts,
+                operation_lock_fd=operation_lock_fd,
+            )
+        except Exception:
+            if not dry_run:
+                reservations.pop(thread_id, None)
+                atomic_json(reservations_path, reservations)
+            raise
+        statuses = {str(row.get("status") or "") for row in result.get("results", [])}
+        if not dry_run and not statuses.intersection({"started", "already_running"}):
+            reservations.pop(thread_id, None)
+            atomic_json(reservations_path, reservations)
+        result["snapshot_path"] = str(snapshot_path)
+        return result
+
+
+def print_resume_list(payload: dict[str, Any]) -> None:
+    print(f"Snapshot {payload.get('snapshot_id')} — {payload.get('captured_at')}")
+    for index, thread in enumerate(payload["threads"], 1):
+        label = thread.get("title") or thread.get("name") or thread["thread_id"]
+        print(f"{index:>2}. [{thread.get('recommendation'):<13}] I={thread.get('importance_score')}/5 ROI={thread.get('roi_score')}/5  {label}")
+        print(f"    {thread.get('roi_rationale')}")
+
+
+def _cmd_inventory_unlocked(args: argparse.Namespace) -> int:
+    payload = inventory()
+    if args.assessment:
+        apply_assessment(payload, Path(args.assessment).expanduser())
+    if args.persist:
+        path = persist_snapshot(payload, status="inventory_only")
+        payload["snapshot_path"] = str(path)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        for thread in payload["threads"]:
+            print(f"{thread['thread_id']}\t{thread['recommendation']}\tI={thread['importance_score']}\tROI={thread['roi_score']}\t{thread.get('title') or thread.get('name')}")
+    return 0
+
+
+def cmd_inventory(args: argparse.Namespace) -> int:
+    if not args.persist:
+        return _cmd_inventory_unlocked(args)
+    with lifecycle_operation_lock():
+        return _cmd_inventory_unlocked(args)
+
+
+def validate_resume_snapshot(payload: dict[str, Any], snapshot_path: Path) -> None:
+    threads = payload.get("threads")
+    if not isinstance(threads, list):
+        raise LifecycleError(f"Invalid shutdown snapshot: {snapshot_path}")
+    seen: set[str] = set()
+    for index, thread in enumerate(threads):
+        label = f"thread[{index}]"
+        if not isinstance(thread, dict):
+            raise LifecycleError(f"Invalid {label}: expected an object")
+        thread_id = thread.get("thread_id")
+        if not isinstance(thread_id, str) or not thread_id.strip() or "\x00" in thread_id:
+            raise LifecycleError(f"Invalid {label}.thread_id")
+        if thread_id in seen:
+            raise LifecycleError(f"Duplicate thread_id in shutdown snapshot: {thread_id}")
+        seen.add(thread_id)
+        if thread.get("recovery_mode") not in RECOVERY_MODES:
+            raise LifecycleError(f"Invalid recovery_mode for {thread_id}")
+        if thread.get("recommendation") not in RECOMMENDATIONS:
+            raise LifecycleError(f"Invalid recommendation for {thread_id}")
+        for field in (
+            "handoff_prompt",
+            "cwd",
+            "session_id",
+            "session_path",
+            "fleet_claim",
+            "fleet_claim_generation",
+        ):
+            value = thread.get(field, "")
+            if not isinstance(value, str) or "\x00" in value:
+                raise LifecycleError(f"Invalid {field} for {thread_id}")
+        if thread.get("fleet_claim") and not thread.get("fleet_claim_generation"):
+            raise LifecycleError(f"Missing fleet claim generation for {thread_id}")
+        claims = thread.get("workspace_claims", [])
+        if not isinstance(claims, list):
+            raise LifecycleError(f"Invalid workspace_claims for {thread_id}")
+        for claim_index, claim in enumerate(claims):
+            if not isinstance(claim, dict):
+                raise LifecycleError(f"Invalid workspace claim {claim_index} for {thread_id}")
+            name = claim.get("name")
+            paths = claim.get("paths")
+            if not isinstance(name, str) or not name.strip() or "\x00" in name:
+                raise LifecycleError(f"Invalid workspace claim name for {thread_id}")
+            generation = claim.get("generation")
+            if not isinstance(generation, str) or not generation or "\x00" in generation:
+                raise LifecycleError(f"Invalid workspace claim generation for {thread_id}")
+            if (
+                not isinstance(paths, list)
+                or not paths
+                or any(not isinstance(path, str) or not path or "\x00" in path for path in paths)
+            ):
+                raise LifecycleError(f"Invalid workspace claim paths for {thread_id}")
+
+
+def _cmd_shutdown_unlocked(args: argparse.Namespace) -> int:
+    payload = inventory()
+    if args.assessment:
+        apply_assessment(payload, Path(args.assessment).expanduser())
+    status = "dry_run" if args.dry_run else "captured_before_shutdown"
+    snapshot_path = persist_snapshot(payload, status=status)
+    print(f"Snapshot: {snapshot_path}", flush=True)
+    print(f"Handoffs: {snapshot_path.parent / 'handoffs.md'}", flush=True)
+    if args.dry_run:
+        plan = {
+            "snapshot_id": payload["snapshot_id"],
+            "pids": [pid for thread in payload["threads"] for pid in thread.get("pids", [])],
+            "release_claims": not args.keep_claims,
+            "caller_omp_pid": next((pid for pid in [item["pid"] for item in top_level_omp_processes()] if pid in set(ancestor_chain())), 0),
+        }
+        atomic_json(snapshot_path.parent / "shutdown-plan.json", plan)
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
+    report = stop_all(payload, snapshot_path, force=args.force, release=not args.keep_claims)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    if report["survivors"]:
+        raise LifecycleError("Some OMP sessions survived graceful shutdown: " + ", ".join(map(str, report["survivors"])))
+    failed_claims = [
+        row["name"] for row in report.get("claim_results", []) if row.get("status") != "released"
+    ]
+    if failed_claims:
+        raise LifecycleError(
+            "Generation-bound claim release failed for: " + ", ".join(failed_claims)
+        )
+    return 0
+
+
+def cmd_shutdown(args: argparse.Namespace) -> int:
+    with lifecycle_operation_lock():
+        return _cmd_shutdown_unlocked(args)
+
+
+def cmd_resume(args: argparse.Namespace) -> int:
+    snapshot_path = resolve_snapshot(args.snapshot)
+    payload = load_json(snapshot_path, None)
+    if not isinstance(payload, dict):
+        raise LifecycleError(f"Invalid shutdown snapshot: {snapshot_path}")
+    validate_resume_snapshot(payload, snapshot_path)
+    if args.json:
+        output = dict(payload)
+        output["snapshot_path"] = str(snapshot_path)
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0
+    selection = [item for item in (args.select or "").split(",") if item.strip()]
+    if not selection:
+        if not sys.stdin.isatty():
+            raise LifecycleError("Interactive resume needs a TTY; use --json or --select THREAD_ID,...")
+        print_resume_list(payload)
+        candidates = [thread for thread in payload["threads"] if thread.get("recommendation") in {"pursue_now", "resume_exact"}]
+        defaults = ",".join(str(payload["threads"].index(thread) + 1) for thread in candidates)
+        answer = input(f"Select thread numbers to pursue now [default {defaults or 'none'}; 'none' cancels]: ").strip()
+        if not answer:
+            answer = defaults
+        if answer.lower() in {"none", "n", "cancel", "q"}:
+            print("No sessions resumed.")
+            return 0
+        indexes: list[int] = []
+        try:
+            indexes = [int(item.strip()) for item in answer.split(",") if item.strip()]
+        except ValueError as exc:
+            raise LifecycleError("Selections must be comma-separated thread numbers") from exc
+        for index in indexes:
+            if index < 1 or index > len(payload["threads"]):
+                raise LifecycleError(f"Selection out of range: {index}")
+            selection.append(payload["threads"][index - 1]["thread_id"])
+    rows = selected_threads(payload, selection)
+    result = resume_selected(snapshot_path, payload, rows, dry_run=args.dry_run, max_starts=args.max_starts)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_continue(args: argparse.Namespace) -> int:
+    result = continue_thread(args.thread, args.mode, dry_run=args.dry_run, max_starts=args.max_starts)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_status(_: argparse.Namespace) -> int:
+    pointer = load_json(STATE_ROOT / "latest.json", {})
+    if not pointer:
+        print("No OMP shutdown snapshot exists.")
+        return 0
+    snapshot_path = resolve_snapshot("latest")
+    payload = load_json(snapshot_path, {})
+    print_resume_list(payload)
+    result_path = snapshot_path.parent / "shutdown-result.json"
+    if result_path.exists():
+        result = load_json(result_path, {})
+        print(f"Shutdown survivors: {result.get('survivors', [])}")
+    print(f"Handoffs: {snapshot_path.parent / 'handoffs.md'}")
+    return 0
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(prog="omp-lifecycle", description=__doc__)
+    commands = root.add_subparsers(dest="command", required=True)
+    inventory_parser = commands.add_parser("inventory", help="inspect and rank OMP sessions without stopping them")
+    inventory_parser.add_argument("--assessment")
+    inventory_parser.add_argument("--persist", action="store_true")
+    inventory_parser.add_argument("--json", action="store_true")
+    inventory_parser.set_defaults(func=cmd_inventory)
+    shutdown = commands.add_parser("shutdown", help="fsync a handoff snapshot, then stop all top-level OMP sessions")
+    shutdown.add_argument("--assessment", help="agent-reviewed assessment JSON matching the current inventory")
+    shutdown.add_argument("--dry-run", action="store_true")
+    shutdown.add_argument("--force", action="store_true", help="SIGKILL only sessions that survive clean exit, SIGINT, and SIGTERM")
+    shutdown.add_argument("--keep-claims", action="store_true")
+    shutdown.set_defaults(func=cmd_shutdown)
+    confirmer = commands.add_parser("confirm-caller", help=argparse.SUPPRESS)
+    confirmer.add_argument("--pid", type=int, required=True)
+    confirmer.add_argument("--start-time", required=True)
+    confirmer.add_argument("--thread-id", required=True)
+    confirmer.add_argument("--snapshot", required=True)
+    confirmer.add_argument("--result", required=True)
+    confirmer.add_argument("--force", action="store_true")
+    confirmer.add_argument("--release", action="store_true")
+    confirmer.set_defaults(func=cmd_confirm_caller)
+    resume = commands.add_parser("resume", help="review a shutdown portfolio and resume selected high-value threads")
+    resume.add_argument("--snapshot", default="latest")
+    resume.add_argument("--json", action="store_true")
+    resume.add_argument("--select", help="comma-separated stable thread IDs")
+    resume.add_argument("--dry-run", action="store_true")
+    resume.add_argument("--max-starts", type=int, default=MAX_TOP_LEVEL_OMP)
+    resume.set_defaults(func=cmd_resume)
+    continuation = commands.add_parser("continue", help="safely resume one current portfolio thread")
+    continuation.add_argument("--thread", required=True, help="stable current thread ID")
+    continuation.add_argument("--mode", choices=("exact", "fresh"), required=True)
+    continuation.add_argument("--dry-run", action="store_true")
+    continuation.add_argument("--max-starts", type=int, default=1)
+    continuation.set_defaults(func=cmd_continue)
+    commands.add_parser("status", help="show the latest shutdown portfolio").set_defaults(func=cmd_status)
+    return root
+
+
+def main() -> int:
+    args = parser().parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except LifecycleError as exc:
+        print(f"omp-lifecycle: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except KeyboardInterrupt:
+        raise SystemExit(130)

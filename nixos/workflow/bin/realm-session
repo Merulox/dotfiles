@@ -1,0 +1,887 @@
+#!/usr/bin/env python3
+"""Persistent Realm workspace and attachable OMP fleet manager."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import stat
+import sys
+from contextlib import contextmanager
+import time
+from pathlib import Path
+from typing import Any
+
+REALM_SESSION = "realm"
+FLEET_SESSION = os.environ.get("REALM_AGENT_TMUX", "omp-fleet")
+STATE_DIR = Path(os.environ.get("REALM_AGENT_STATE_DIR", "~/.local/share/realm")).expanduser()
+REGISTRY_PATH = STATE_DIR / "omp-fleet.json"
+OMP_HOME = Path(os.environ.get("PI_CODING_AGENT_DIR", "~/.omp/agent")).expanduser()
+SESSION_ROOT = OMP_HOME / "sessions"
+TERMINAL_ROOT = OMP_HOME / "terminal-sessions"
+WORKSPACE_PATH = Path(
+    os.environ.get("OMP_WORKSPACE_PATH", "~/.local/share/claude-sessions/workspace.json")
+).expanduser()
+LIFECYCLE_STATE_DIR = Path(
+    os.environ.get("OMP_LIFECYCLE_STATE_DIR", "~/.local/share/realm/omp-shutdowns")
+).expanduser()
+MAX_FLEET_AGENTS = int(os.environ.get("REALM_AGENT_MAX", "3"))
+MAX_TOP_LEVEL_OMP = int(os.environ.get("REALM_OMP_PROCESS_MAX", "3"))
+MIN_AVAILABLE_MB = int(os.environ.get("REALM_AGENT_MIN_AVAILABLE_MB", "4096"))
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,47}$")
+SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.I)
+OMP_EXECUTABLES = {"omp", "omp-real", "omp-bin"}
+
+
+class FleetError(RuntimeError):
+    pass
+
+
+def now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+@contextmanager
+def registry_lock():
+    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE_DIR, 0o700)
+    lock_path = STATE_DIR / "omp-fleet.lock"
+    with lock_path.open("a+") as lock_handle:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        yield
+@contextmanager
+def lifecycle_operation_lock():
+    LIFECYCLE_STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(LIFECYCLE_STATE_DIR, 0o700)
+    lock_path = LIFECYCLE_STATE_DIR / "operations.lock"
+    with lock_path.open("a+") as lock_handle:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        yield
+
+
+def validate_operation_lock_handoff(args: argparse.Namespace) -> int | None:
+    fd = getattr(args, "operation_lock_fd", None)
+    if fd is None:
+        return None
+    expected = (LIFECYCLE_STATE_DIR / "operations.lock").resolve()
+    try:
+        target = Path(os.readlink(f"/proc/self/fd/{fd}")).resolve()
+        info = os.fstat(fd)
+    except (OSError, ValueError) as exc:
+        raise FleetError("Invalid lifecycle operation lock handoff") from exc
+    if target != expected or not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        raise FleetError("Invalid lifecycle operation lock handoff")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        raise FleetError("Lifecycle operation lock handoff is not owned") from exc
+    os.set_inheritable(fd, False)
+    return fd
+
+
+@contextmanager
+def mutating_operation(args: argparse.Namespace):
+    if validate_operation_lock_handoff(args) is not None:
+        yield
+        return
+    with lifecycle_operation_lock():
+        yield
+
+
+
+
+def pane_is_omp(name: str) -> bool:
+    return pane_value(name, "#{pane_current_command}") in OMP_EXECUTABLES
+
+
+def run(args: list[str], *, check: bool = True, capture: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, check=check, capture_output=capture, text=True)
+
+
+def tmux_exists(session: str) -> bool:
+    return run(["tmux", "has-session", "-t", session], check=False).returncode == 0
+
+
+def window_exists(name: str) -> bool:
+    if not tmux_exists(FLEET_SESSION):
+        return False
+    return run(["tmux", "list-panes", "-t", f"{FLEET_SESSION}:{name}"], check=False).returncode == 0
+
+
+def pane_value(name: str, template: str) -> str:
+    result = run(["tmux", "display-message", "-p", "-t", f"{FLEET_SESSION}:{name}", template], check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def load_registry() -> dict[str, Any]:
+    if not REGISTRY_PATH.exists():
+        return {"version": 1, "agents": {}}
+    try:
+        data = json.loads(REGISTRY_PATH.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FleetError(f"Cannot read registry {REGISTRY_PATH}: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("agents"), dict):
+        raise FleetError(f"Invalid registry structure: {REGISTRY_PATH}")
+    data.setdefault("version", 1)
+    return data
+
+
+def save_registry(data: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE_DIR, 0o700)
+    temp = REGISTRY_PATH.with_name(REGISTRY_PATH.name + f".tmp-{os.getpid()}")
+    try:
+        with temp.open("w") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp, 0o600)
+        os.replace(temp, REGISTRY_PATH)
+        directory_fd = os.open(STATE_DIR, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def session_id_from_path(path: str | Path | None) -> str:
+    if not path:
+        return ""
+    match = SESSION_ID_RE.search(Path(path).name)
+    return match.group(1).lower() if match else ""
+
+
+def top_level_sessions() -> list[Path]:
+    if not SESSION_ROOT.exists():
+        return []
+    sessions: list[Path] = []
+    for path in SESSION_ROOT.glob("*/*.jsonl"):
+        if path.is_file():
+            sessions.append(path)
+    return sessions
+
+
+def resolve_session(value: str) -> Path:
+    candidate = Path(value).expanduser()
+    if candidate.exists() and candidate.is_file():
+        return candidate.resolve()
+    needle = value.lower()
+    matches = [path for path in top_level_sessions() if needle in path.name.lower()]
+    if not matches:
+        raise FleetError(f"No persisted OMP session matches: {value}")
+    exact = [path for path in matches if session_id_from_path(path) == needle]
+    selected = exact or matches
+    if len(selected) != 1:
+        names = ", ".join(path.name for path in selected[:5])
+        raise FleetError(f"Ambiguous OMP session {value}: {names}")
+    return selected[0].resolve()
+
+
+def breadcrumb_for_window(name: str) -> tuple[str, str]:
+    tty = pane_value(name, "#{pane_tty}")
+    if not tty:
+        return "", ""
+    breadcrumb = TERMINAL_ROOT / tty.removeprefix("/dev/").replace("/", "-")
+    if not breadcrumb.exists():
+        return "", ""
+    try:
+        lines = breadcrumb.read_text().splitlines()
+    except OSError:
+        return "", ""
+    cwd = lines[0] if lines else ""
+    session_path = lines[1] if len(lines) > 1 else ""
+    return cwd, session_path
+
+
+def mem_available_mb() -> int:
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def memory_pressure() -> str:
+    try:
+        for line in Path("/proc/pressure/memory").read_text().splitlines():
+            if line.startswith("some "):
+                fields = dict(item.split("=", 1) for item in line.split()[1:] if "=" in item)
+                return fields.get("avg10", "0.00")
+    except OSError:
+        pass
+    return "unknown"
+
+
+def live_fleet_windows() -> list[str]:
+    if not tmux_exists(FLEET_SESSION):
+        return []
+    result = run(
+        ["tmux", "list-windows", "-t", FLEET_SESSION, "-F", "#{window_name}\t#{pane_current_command}"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    windows: list[str] = []
+    for line in result.stdout.splitlines():
+        name, separator, command = line.partition("\t")
+        if separator and command in OMP_EXECUTABLES:
+            windows.append(name)
+    return windows
+
+def top_level_omp_pids() -> list[int]:
+    excluded_commands = {"acp", "auth-broker", "auth-gateway", "bench", "config", "models", "shell", "update"}
+    pids: list[int] = []
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            argv = [
+                part.decode(errors="replace")
+                for part in (proc / "cmdline").read_bytes().split(b"\0")
+                if part
+            ]
+        except (OSError, PermissionError):
+            continue
+        if not argv or Path(argv[0]).name not in OMP_EXECUTABLES:
+            continue
+        first_arg = argv[1] if len(argv) > 1 else ""
+        if first_arg.startswith("__omp_worker") or first_arg in excluded_commands:
+            continue
+        if "-p" in argv or "--print" in argv:
+            continue
+        pids.append(int(proc.name))
+    return sorted(pids)
+
+
+def active_writer_pids(session_path: Path) -> list[int]:
+    target = str(session_path.resolve())
+    ttys: set[str] = set()
+    if TERMINAL_ROOT.exists():
+        for breadcrumb in TERMINAL_ROOT.iterdir():
+            try:
+                lines = breadcrumb.read_text().splitlines()
+            except OSError:
+                continue
+            if len(lines) > 1 and str(Path(lines[1]).expanduser().resolve()) == target and breadcrumb.name.startswith("pts-"):
+                ttys.add("/dev/pts/" + breadcrumb.name.removeprefix("pts-"))
+    writers: list[int] = []
+    for pid in top_level_omp_pids():
+        proc = Path("/proc") / str(pid)
+        try:
+            cmdline = (proc / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+            stdin_tty = os.readlink(proc / "fd/0")
+        except (OSError, PermissionError):
+            continue
+        if stdin_tty in ttys or session_id_from_path(session_path) in cmdline.lower():
+            writers.append(pid)
+    return sorted(set(writers))
+
+
+def sync_registry(data: dict[str, Any]) -> dict[str, Any]:
+    changed = False
+    for name, entry in data["agents"].items():
+        alive = window_exists(name) and pane_is_omp(name)
+        previous = entry.get("state")
+        if alive:
+            cwd, session_path = breadcrumb_for_window(name)
+            entry.update(
+                {
+                    "state": "running",
+                    "tmux_target": f"{FLEET_SESSION}:{name}",
+                    "pane_id": pane_value(name, "#{pane_id}"),
+                    "pane_pid": int(pane_value(name, "#{pane_pid}") or 0),
+                    "tty": pane_value(name, "#{pane_tty}"),
+                    "last_seen": now(),
+                }
+            )
+            if cwd:
+                entry["cwd"] = cwd
+            if session_path:
+                entry["session_path"] = session_path
+                entry["session_id"] = session_id_from_path(session_path)
+        elif previous == "running":
+            entry["state"] = "interrupted"
+            entry["interrupted_at"] = now()
+        changed = changed or entry.get("state") != previous or alive
+    if changed:
+        save_registry(data)
+    return data
+
+
+def validate_name(name: str) -> None:
+    if not NAME_RE.fullmatch(name):
+        raise FleetError("Agent name must be 1-48 letters, numbers, dots, underscores, or hyphens")
+
+
+def preflight_start(name: str) -> None:
+    validate_name(name)
+    if window_exists(name):
+        raise FleetError(f"OMP fleet window already exists: {name}")
+    live = live_fleet_windows()
+    if len(live) >= MAX_FLEET_AGENTS:
+        raise FleetError(
+            f"Managed OMP fleet limit reached ({len(live)}/{MAX_FLEET_AGENTS}); "
+            "stop or queue an agent first"
+        )
+    host_pids = top_level_omp_pids()
+    if len(host_pids) >= MAX_TOP_LEVEL_OMP:
+        raise FleetError(
+            f"Host OMP process limit reached ({len(host_pids)}/{MAX_TOP_LEVEL_OMP}; "
+            f"PIDs {', '.join(map(str, host_pids))})"
+        )
+    available = mem_available_mb()
+    if available and available < MIN_AVAILABLE_MB:
+        raise FleetError(
+            f"Only {available} MiB memory is available; launch floor is {MIN_AVAILABLE_MB} MiB "
+            f"(memory PSI avg10={memory_pressure()})"
+        )
+
+def validate_claim_binding(
+    claim: str,
+    generation: str,
+    cwd: Path,
+    registry: dict[str, Any],
+    agent_name: str,
+    workspace: dict[str, Any] | None = None,
+) -> None:
+    records = workspace if workspace is not None else load_workspace_claims()
+    record = records.get(claim)
+    if not isinstance(record, dict):
+        raise FleetError(f"Workspace claim does not exist: {claim}")
+    if record.get("generation") != generation:
+        raise FleetError(f"Workspace claim generation changed: {claim}")
+    claimed_paths = [Path(path).expanduser().resolve() for path in record.get("claims", [])]
+    if not any(cwd == root or cwd.is_relative_to(root) for root in claimed_paths):
+        raise FleetError(f"Workspace claim does not cover working directory: {claim}")
+    for other_name, other_entry in registry["agents"].items():
+        if (
+            other_name != agent_name
+            and other_entry.get("state") == "running"
+            and other_entry.get("claim") == claim
+            and other_entry.get("claim_generation") == generation
+        ):
+            raise FleetError(f"Workspace claim already has a running writer: {other_name}")
+
+
+def create_agent_window(name: str, cwd: Path, command: str) -> None:
+    if tmux_exists(FLEET_SESSION):
+        args = ["tmux", "new-window", "-d", "-t", FLEET_SESSION, "-n", name, "-c", str(cwd), command]
+    else:
+        args = ["tmux", "new-session", "-d", "-s", FLEET_SESSION, "-n", name, "-c", str(cwd), command]
+    run(args)
+
+
+def wait_for_breadcrumb(name: str, timeout: float = 8.0) -> tuple[str, str]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        cwd, session_path = breadcrumb_for_window(name)
+        if pane_is_omp(name) and session_path:
+            return cwd, session_path
+        time.sleep(0.2)
+    return breadcrumb_for_window(name)
+
+
+def cmd_agent_start(args: argparse.Namespace) -> int:
+    with mutating_operation(args):
+        with registry_lock():
+            return _cmd_agent_start_locked(args)
+
+
+def _cmd_agent_start_locked(args: argparse.Namespace) -> int:
+    preflight_start(args.name)
+    cwd = Path(args.cwd).expanduser().resolve()
+    if not cwd.is_dir():
+        raise FleetError(f"Working directory does not exist: {cwd}")
+
+    registry = sync_registry(load_registry())
+    omp_args: list[str] = []
+    session_path: Path | None = None
+    if args.resume:
+        session_path = resolve_session(args.resume)
+        for other_name, entry in registry["agents"].items():
+            if other_name != args.name and entry.get("state") == "running" and entry.get("session_id") == session_id_from_path(session_path):
+                raise FleetError(f"Session already has a registered writer: {other_name}")
+        writers = active_writer_pids(session_path)
+        if writers:
+            raise FleetError(f"Session already has active OMP writer PID(s): {', '.join(map(str, writers))}")
+        omp_args.extend(["--resume", str(session_path)])
+    if args.auto_approve:
+        omp_args.append("--auto-approve")
+    if args.omp_args:
+        extra = args.omp_args[1:] if args.omp_args[0] == "--" else args.omp_args
+        omp_args.extend(extra)
+    if args.prompt:
+        omp_args.append(args.prompt)
+    claim_generation = getattr(args, "claim_generation", None)
+    if args.claim and not claim_generation:
+        raise FleetError("Workspace claim generation is required when binding a claim")
+    if claim_generation and not args.claim:
+        raise FleetError("Workspace claim name is required with a claim generation")
+    if args.claim:
+        validate_claim_binding(args.claim, claim_generation, cwd, registry, args.name)
+
+    writer_identities: dict[int, str] = {}
+    effective_session = ""
+    create_agent_window(args.name, cwd, "exec " + shlex.join(["omp", *omp_args]))
+    try:
+        actual_cwd, actual_session = wait_for_breadcrumb(args.name)
+        if not window_exists(args.name) or not pane_is_omp(args.name):
+            raise FleetError(f"OMP exited before {args.name} established a running pane")
+        effective_session = actual_session or (str(session_path) if session_path else "")
+        if not effective_session:
+            raise FleetError(f"OMP did not publish a resumable session identity for {args.name}")
+        pane_pid = int(pane_value(args.name, "#{pane_pid}") or 0)
+        candidate_pids = set(active_writer_pids(Path(effective_session).expanduser()))
+        if pane_pid:
+            candidate_pids.add(pane_pid)
+        writer_identities = {
+            pid: started
+            for pid in candidate_pids
+            if (started := process_start_time(pid)) is not None
+        }
+        if not writer_identities:
+            raise FleetError(f"Cannot capture OMP writer identity for {args.name}")
+        registry["agents"][args.name] = {
+            "name": args.name,
+            "state": "running",
+            "cwd": actual_cwd or str(cwd),
+            "session_path": effective_session,
+            "session_id": session_id_from_path(effective_session),
+            "claim": args.claim or "",
+            "claim_generation": claim_generation or "",
+            "tmux_target": f"{FLEET_SESSION}:{args.name}",
+            "pane_id": pane_value(args.name, "#{pane_id}"),
+            "pane_pid": pane_pid,
+            "tty": pane_value(args.name, "#{pane_tty}"),
+            "started_at": now(),
+            "last_seen": now(),
+        }
+        save_registry(registry)
+    except BaseException as exc:
+        if not writer_identities and window_exists(args.name):
+            pane_pid = int(pane_value(args.name, "#{pane_pid}") or 0)
+            if pane_pid and (started := process_start_time(pane_pid)) is not None:
+                writer_identities[pane_pid] = started
+        cleanup = None
+        if window_exists(args.name):
+            cleanup = run(["tmux", "kill-window", "-t", f"{FLEET_SESSION}:{args.name}"], check=False)
+        if cleanup is not None and cleanup.returncode != 0 and window_exists(args.name):
+            raise FleetError(f"OMP start failed and window cleanup failed for {args.name}") from exc
+        death_confirmed = bool(writer_identities) and wait_for_writer_death(
+            writer_identities,
+            Path(effective_session).expanduser() if effective_session else None,
+            5.0,
+        )
+        if death_confirmed and not window_exists(args.name):
+            raise FleetError(f"OMP start failed after writer death confirmed for {args.name}: {exc}") from exc
+        raise FleetError(f"OMP start failed and writer death not confirmed for {args.name}; claim retained") from exc
+    print(f"Started {args.name} in {FLEET_SESSION}:{args.name}")
+    print(f"Attach: realm-session agent attach {args.name}")
+    return 0
+
+
+def cmd_agent_adopt(args: argparse.Namespace) -> int:
+    with mutating_operation(args):
+        with registry_lock():
+            return _cmd_agent_adopt_locked(args)
+
+
+def _cmd_agent_adopt_locked(args: argparse.Namespace) -> int:
+    validate_name(args.name)
+    if not window_exists(args.name):
+        raise FleetError(f"No tmux window {FLEET_SESSION}:{args.name}")
+    if not pane_is_omp(args.name):
+        raise FleetError(f"Window {args.name} is not running OMP")
+    cwd_text, session_path = wait_for_breadcrumb(args.name)
+    if not cwd_text or not session_path:
+        raise FleetError(f"OMP breadcrumb not available for window {args.name}")
+    claim_generation = getattr(args, "claim_generation", None)
+    if claim_generation and args.claim is None:
+        raise FleetError("Workspace claim name is required with a claim generation")
+    registry = sync_registry(load_registry())
+    existing = registry["agents"].get(args.name, {})
+    claim = args.claim if args.claim is not None else str(existing.get("claim") or "")
+    generation = (
+        claim_generation if args.claim is not None else str(existing.get("claim_generation") or "")
+    )
+    if claim and not generation:
+        raise FleetError("Workspace claim generation is required when binding a claim")
+    cwd = Path(cwd_text).expanduser().resolve()
+    if claim:
+        validate_claim_binding(claim, generation, cwd, registry, args.name)
+    session_id = session_id_from_path(session_path)
+    for other_name, other_entry in registry["agents"].items():
+        if (
+            other_name != args.name
+            and other_entry.get("state") == "running"
+            and other_entry.get("session_id") == session_id
+        ):
+            raise FleetError(f"Session already has a registered writer: {other_name}")
+    registry["agents"][args.name] = {
+        **existing,
+        "name": args.name,
+        "state": "running",
+        "cwd": str(cwd),
+        "session_path": session_path,
+        "session_id": session_id,
+        "claim": claim,
+        "claim_generation": generation,
+        "tmux_target": f"{FLEET_SESSION}:{args.name}",
+        "adopted_at": existing.get("adopted_at", now()),
+        "last_seen": now(),
+    }
+    save_registry(registry)
+    print(f"Adopted {args.name}: {session_id}")
+    return 0
+
+
+def cmd_agent_list(_: argparse.Namespace) -> int:
+    registry = sync_registry(load_registry())
+    agents = registry["agents"]
+    if not agents:
+        print("No registered OMP agents.")
+        return 0
+    print(f"{'NAME':<18} {'STATE':<12} {'SESSION':<14} {'CLAIM':<30} TARGET")
+    for name in sorted(agents):
+        entry = agents[name]
+        session_id = entry.get("session_id", "")[:12] or "-"
+        claim = entry.get("claim", "") or "-"
+        target = entry.get("tmux_target", "-")
+        print(f"{name:<18} {entry.get('state', 'unknown'):<12} {session_id:<14} {claim:<30} {target}")
+    available = mem_available_mb()
+    print(
+        f"\nFleet: {len(live_fleet_windows())}/{MAX_FLEET_AGENTS} managed; "
+        f"host OMP: {len(top_level_omp_pids())}/{MAX_TOP_LEVEL_OMP}; "
+        f"MemAvailable={available} MiB; memory PSI avg10={memory_pressure()}"
+    )
+    return 0
+
+
+def cmd_agent_attach(args: argparse.Namespace) -> int:
+    target = FLEET_SESSION if not args.name else f"{FLEET_SESSION}:{args.name}"
+    if args.name and not window_exists(args.name):
+        raise FleetError(f"No running OMP window: {args.name}")
+    if not tmux_exists(FLEET_SESSION):
+        raise FleetError("OMP fleet does not exist")
+    if os.environ.get("TMUX"):
+        run(["tmux", "switch-client", "-t", target], capture=False)
+        return 0
+    os.execvp("tmux", ["tmux", "attach-session", "-t", target])
+    return 0
+
+
+def process_start_time(pid: int) -> str | None:
+    try:
+        rest = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        return rest[19]
+    except (OSError, IndexError):
+        return None
+
+
+def process_identity_state(pid: int, start_time: str) -> str:
+    try:
+        rest = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        current = rest[19]
+    except FileNotFoundError:
+        return "dead"
+    except (OSError, IndexError):
+        return "unknown"
+    return "alive" if current == start_time else "dead"
+
+
+def same_process_alive(pid: int, start_time: str) -> bool:
+    return process_identity_state(pid, start_time) == "alive"
+
+
+def wait_for_writer_death(
+    identities: dict[int, str],
+    session_path: Path | None,
+    seconds: float,
+) -> bool:
+    deadline = time.monotonic() + seconds
+    while True:
+        identity_states = [
+            process_identity_state(pid, started)
+            for pid, started in identities.items()
+        ]
+        session_writers = active_writer_pids(session_path) if session_path is not None else []
+        if identity_states and all(state == "dead" for state in identity_states) and not session_writers:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def cmd_agent_stop(args: argparse.Namespace) -> int:
+    with mutating_operation(args):
+        with registry_lock():
+            return _cmd_agent_stop_locked(args)
+
+
+def _cmd_agent_stop_locked(args: argparse.Namespace) -> int:
+    if not window_exists(args.name):
+        raise FleetError(f"No running OMP window: {args.name}")
+    registry = load_registry()
+    entry = registry["agents"].get(args.name, {})
+    session_text = str(entry.get("session_path") or "")
+    session_path = Path(session_text).expanduser() if session_text else None
+    pane_pid = int(pane_value(args.name, "#{pane_pid}") or entry.get("pane_pid") or 0)
+    candidate_pids = set(active_writer_pids(session_path)) if session_path is not None else set()
+    if pane_pid:
+        candidate_pids.add(pane_pid)
+    identities = {
+        pid: started
+        for pid in candidate_pids
+        if (started := process_start_time(pid)) is not None
+    }
+    if not identities:
+        raise FleetError(f"Cannot capture OMP writer identity for {args.name}; claim retained")
+
+    target = f"{FLEET_SESSION}:{args.name}"
+    if not args.force:
+        run(["tmux", "send-keys", "-t", target, "C-c"], capture=False)
+        time.sleep(0.7)
+        run(["tmux", "send-keys", "-t", target, "/exit", "Enter"], capture=False)
+    else:
+        run(["tmux", "kill-window", "-t", target], capture=False)
+    if not wait_for_writer_death(identities, session_path, 5.0):
+        raise FleetError(f"OMP writer death not confirmed for {args.name}; claim retained")
+    if window_exists(args.name):
+        raise FleetError(f"OMP window remained after writer exit for {args.name}; claim retained")
+    if args.name in registry["agents"]:
+        registry["agents"][args.name]["state"] = "stopped"
+        registry["agents"][args.name]["stopped_at"] = now()
+        save_registry(registry)
+    print(f"Stopped {args.name}")
+    return 0
+
+
+def load_workspace_claims() -> dict[str, Any]:
+    if not WORKSPACE_PATH.exists():
+        return {}
+    try:
+        value = json.loads(WORKSPACE_PATH.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FleetError(f"Cannot read workspace registry {WORKSPACE_PATH}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise FleetError(f"Invalid workspace registry structure: {WORKSPACE_PATH}")
+    for owner, record in value.items():
+        if not isinstance(owner, str) or not owner or not isinstance(record, dict):
+            raise FleetError(f"Invalid workspace owner record: {owner!r}")
+        claims = record.get("claims")
+        if not isinstance(claims, list) or any(not isinstance(item, str) or not item for item in claims):
+            raise FleetError(f"Invalid workspace claims for owner: {owner}")
+        generation = record.get("generation")
+        if generation is not None and (not isinstance(generation, str) or not generation):
+            raise FleetError(f"Invalid workspace generation for owner: {owner}")
+    return value
+
+
+def cmd_agent_recover(args: argparse.Namespace) -> int:
+    with mutating_operation(args):
+        with registry_lock():
+            return _cmd_agent_recover_locked(args)
+
+
+def _cmd_agent_recover_locked(_: argparse.Namespace) -> int:
+    registry = sync_registry(load_registry())
+    workspace = load_workspace_claims()
+    interrupted = [entry for entry in registry["agents"].values() if entry.get("state") == "interrupted"]
+    changed = False
+    for entry in interrupted:
+        claim = str(entry.get("claim") or "")
+        generation = str(entry.get("claim_generation") or "")
+        if generation and not claim:
+            raise FleetError(f"Interrupted agent has a claim generation without an owner: {entry.get('name')}")
+        if claim:
+            record = workspace.get(claim)
+            migrated_generation = str(record.get("generation") or "") if isinstance(record, dict) else ""
+            if not generation:
+                if not migrated_generation:
+                    raise FleetError(f"Interrupted agent claim has no recoverable generation: {entry.get('name')}")
+                generation = migrated_generation
+                entry["claim_generation"] = generation
+                changed = True
+            cwd = Path(str(entry.get("cwd") or Path.home())).expanduser().resolve()
+            validate_claim_binding(
+                claim,
+                generation,
+                cwd,
+                registry,
+                str(entry.get("name") or ""),
+                workspace,
+            )
+    if changed:
+        save_registry(registry)
+    if interrupted:
+        print("Interrupted registered OMP sessions:")
+        for entry in sorted(interrupted, key=lambda item: item.get("name", "")):
+            command = [
+                "realm-session",
+                "agent",
+                "start",
+                entry["name"],
+                "--cwd",
+                entry.get("cwd") or str(Path.home()),
+                "--resume",
+                entry.get("session_id") or entry.get("session_path", ""),
+            ]
+            if entry.get("claim"):
+                command.extend([
+                    "--claim",
+                    entry["claim"],
+                    "--claim-generation",
+                    entry["claim_generation"],
+                ])
+            print(f"  {entry['name']}: {shlex.join(command)}")
+    else:
+        print("No interrupted registered OMP sessions.")
+
+    represented = {entry.get("claim") for entry in registry["agents"].values() if entry.get("claim")}
+    orphaned = {name: value for name, value in workspace.items() if name not in represented}
+    if orphaned:
+        print("\nWorkspace claims without a registered fleet agent:")
+        for name, value in sorted(orphaned.items()):
+            claims = ", ".join(value.get("claims", [])) if isinstance(value, dict) else ""
+            print(f"  {name}: {claims}")
+    else:
+        print("No orphaned workspace claims.")
+    return 0
+
+
+def launch_realm() -> int:
+    if tmux_exists(REALM_SESSION):
+        os.execvp("tmux", ["tmux", "attach-session", "-t", REALM_SESSION])
+    columns, lines = shutil.get_terminal_size((120, 40))
+    primary_pane = run(
+        [
+            "tmux",
+            "new-session",
+            "-d",
+            "-s",
+            REALM_SESSION,
+            "-x",
+            str(columns),
+            "-y",
+            str(lines),
+            "-P",
+            "-F",
+            "#{pane_id}",
+        ]
+    ).stdout.strip()
+    secondary_pane = run(
+        [
+            "tmux",
+            "split-window",
+            "-h",
+            "-p",
+            "30",
+            "-t",
+            primary_pane,
+            "-P",
+            "-F",
+            "#{pane_id}",
+        ]
+    ).stdout.strip()
+    run(["tmux", "send-keys", "-t", secondary_pane, "soul-index", "Enter"])
+    run(["tmux", "select-pane", "-t", primary_pane])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "pane-border-style", "fg=colour238"])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "pane-active-border-style", "fg=colour240"])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "status-style", "bg=colour233 fg=colour244"])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "status-left", " realm | "])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "status-left-length", "20"])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "status-right", "| %H:%M "])
+    run(["tmux", "set-option", "-t", REALM_SESSION, "status-right-length", "15"])
+    os.execvp("tmux", ["tmux", "attach-session", "-t", REALM_SESSION])
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="realm-session", description=__doc__)
+    parser.add_argument("--kill", action="store_true", help="kill the persistent Realm workspace")
+    commands = parser.add_subparsers(dest="command")
+    agent = commands.add_parser("agent", help="manage attachable OMP agents")
+    actions = agent.add_subparsers(dest="agent_action", required=True)
+
+    actions.add_parser("list", help="list registered OMP agents").set_defaults(func=cmd_agent_list)
+    actions.add_parser("recover", help="report interrupted sessions and orphaned claims").set_defaults(func=cmd_agent_recover)
+
+    attach = actions.add_parser("attach", help="attach to the OMP fleet or one named agent")
+    attach.add_argument("name", nargs="?")
+    attach.set_defaults(func=cmd_agent_attach)
+
+    adopt = actions.add_parser("adopt", help="register an existing OMP tmux window")
+    adopt.add_argument("name")
+    adopt.add_argument("--claim")
+    adopt.add_argument("--claim-generation")
+    adopt.add_argument("--operation-lock-fd", type=int, help=argparse.SUPPRESS)
+    adopt.set_defaults(func=cmd_agent_adopt)
+
+    start = actions.add_parser("start", help="start a quota-checked OMP tmux window")
+    start.add_argument("name")
+    start.add_argument("--cwd", default=str(Path.home()))
+    start.add_argument("--resume")
+    start.add_argument("--claim")
+    start.add_argument("--claim-generation")
+    start.add_argument("--prompt")
+    start.add_argument("--auto-approve", action="store_true")
+    start.add_argument("--operation-lock-fd", type=int, help=argparse.SUPPRESS)
+    start.set_defaults(func=cmd_agent_start)
+
+    stop = actions.add_parser("stop", help="stop a named OMP window")
+    stop.add_argument("name")
+    stop.add_argument("--force", action="store_true")
+    stop.add_argument("--operation-lock-fd", type=int, help=argparse.SUPPRESS)
+    stop.set_defaults(func=cmd_agent_stop)
+    return parser
+
+
+def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    args, extra = parser.parse_known_args(argv)
+    if args.command == "agent" and getattr(args, "agent_action", "") == "start":
+        args.omp_args = extra[1:] if extra[:1] == ["--"] else extra
+    elif extra:
+        parser.error("unrecognized arguments: " + " ".join(extra))
+    return args
+
+
+def main() -> int:
+    args = parse_cli_args()
+    if args.kill:
+        result = run(["tmux", "kill-session", "-t", REALM_SESSION], check=False, capture=False)
+        if result.returncode == 0:
+            print("realm session killed")
+        return 0
+    if args.command == "agent":
+        if getattr(args, "agent_action", "") == "list":
+            with registry_lock():
+                return args.func(args)
+        return args.func(args)
+    return launch_realm()
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except FleetError as exc:
+        print(f"realm-session: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except KeyboardInterrupt:
+        raise SystemExit(130)

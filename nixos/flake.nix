@@ -16,10 +16,9 @@
     nix-gaming.inputs.nixpkgs.follows = "nixpkgs";
     # openclaw
     nix-openclaw.url = "github:openclaw/nix-openclaw";
-    orca.url = "git+file:/home/merulox/pkgs/orca";
 
   };
-  outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, aagl-gtk-on-nix, nix-gaming, nix-openclaw, orca, ... }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, aagl-gtk-on-nix, nix-gaming, nix-openclaw, ... }:
   let
     system = "x86_64-linux";
     hostname = "navi";
@@ -29,14 +28,19 @@
     nixosConfigurations = {
       "${hostname}" = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit unstable aagl-gtk-on-nix nix-gaming orca; };
+        specialArgs = { inherit unstable aagl-gtk-on-nix nix-gaming; };
         modules = [
           ./configuration.nix
           home-manager.nixosModules.home-manager
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.users.merulox = import ./home.nix;
+            home-manager.users.merulox = {
+              imports = [
+                ./home.nix
+                ./home/dev-workflow.nix
+              ];
+            };
           }
             nix-openclaw.nixosModules.openclaw-gateway
             ({ ... }: {

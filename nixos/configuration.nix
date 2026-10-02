@@ -1,7 +1,7 @@
 # Edit this configuration file to define what should be installed on
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running 'nixos-help').
-{ config, pkgs, lib, unstable, aagl-gtk-on-nix, nix-gaming, orca, ... }:
+{ config, pkgs, lib, unstable, aagl-gtk-on-nix, nix-gaming, ... }:
 
 let
   goldfish = pkgs.stdenvNoCC.mkDerivation rec {
@@ -27,6 +27,30 @@ let
       license = lib.licenses.mpl20;
       platforms = [ "x86_64-linux" ];
       mainProgram = "gf";
+    };
+  };
+  signalerPiperVoice = pkgs.stdenvNoCC.mkDerivation {
+    pname = "signaler-piper-voice-en-us-ljspeech-medium";
+    version = "2026-08-12";
+
+    model = pkgs.fetchurl {
+      url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx";
+      hash = "sha256-b1KnUeI0mr56dnNesJ3Bh1KYx36iNC/9L+95/4G4fyI=";
+    };
+    modelConfig = pkgs.fetchurl {
+      url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json";
+      hash = "sha256-FB1hLMCpXtfvwcqTa4RcI2SWfy6SF8Xb/PafxNbGWGA=";
+    };
+    dontUnpack = true;
+    installPhase = ''
+      install -Dm444 "$model" "$out/share/piper-voices/en_US-ljspeech-medium.onnx"
+      install -Dm444 "$modelConfig" "$out/share/piper-voices/en_US-ljspeech-medium.onnx.json"
+    '';
+    meta = {
+      description = "Pinned Piper LJSpeech voice artifact for Signaler video narration";
+      homepage = "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/ljspeech/medium";
+      license = lib.licenses.mit;
+      platforms = lib.platforms.linux;
     };
   };
 in
@@ -65,7 +89,24 @@ in
     nvidiaSettings = true;
   };
   hardware.nvidia-container-toolkit.enable = true;
- 
+
+
+  # Memory safety — zram swap + earlyoom
+  # Added 2026-07-25 by Genesis (partner-approved via Telegram) after two
+  # RAM-exhaustion freezes: baseline desktop load (browser/electron/spotify)
+  # was already at 30/31GB used with 0 swap touched despite 17GB swap
+  # existing, and stacking concurrent builder agent sessions on that
+  # headroom triggered a full thrash/lockup requiring a hard reset.
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 50;
+  };
+  services.earlyoom = {
+    enable = true;
+    freeMemThreshold = 5;   # percent free RAM that triggers a kill
+    freeSwapThreshold = 10; # percent free swap that triggers a kill
+  };
 
   # Reboot / Shutdown
   boot.kernelParams = [
@@ -99,6 +140,19 @@ in
     ];
   };
 
+  # Qdrant — vector database for navi memory substrate
+  services.qdrant = {
+    enable = true;
+    package = pkgs.qdrant;
+    settings = {
+      storage.storage_path = "/var/lib/qdrant/storage";
+      service.host = "127.0.0.1";
+      service.http_port = 6333;
+      service.grpc_port = 6334;
+      log_level = "INFO";
+    };
+  };
+
   # YubiKey — udev rules for device recognition (hardware not required to configure)
   services.udev.packages = with pkgs; [ yubikey-personalization ];
   services.pcscd.enable = true; # smartcard daemon required for YubiKey
@@ -127,7 +181,6 @@ in
   config = {
     gateway = {
       mode = "local";
-      auth.token = "pick-any-random-string-here";
     };
     channels.telegram = {
       enabled = true;
@@ -228,7 +281,6 @@ in
   hardware.keyboard.zsa.enable = true;
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
-  boot.loader.systemd-boot.configurationLimit = 10;
   boot.loader.efi.canTouchEfiVariables = true;
   # podman
   virtualisation.podman.enable = true; # for distrobox
@@ -267,6 +319,61 @@ in
     enable = true;
     # Use NextDNS as primary, fall back to nothing (no Google/Cloudflare leakage)
     settings.Resolve.FallbackDNS = [];
+  };
+
+  # Private iPhone terminal — Tailscale transport + localhost-only ttyd.
+  # The browser shell is never exposed to the LAN or public internet.
+  services.tailscale = {
+    enable = true;
+    openFirewall = true;
+    extraSetFlags = [ "--ssh" ];
+  };
+
+  services.ttyd = {
+    enable = true;
+    user = "merulox";
+    interface = "127.0.0.1";
+    port = 7681;
+    writeable = true;
+    # Tailscale is the authentication boundary; reject cross-origin WebSockets.
+    checkOrigin = true;
+    maxClients = 2;
+    clientOptions = {
+      fontSize = "15";
+      scrollback = "5000";
+      cursorBlink = "true";
+    };
+    entrypoint = [
+      "${pkgs.tmux}/bin/tmux"
+      "-S"
+      "/run/user/1000/tmux-1000/default"
+      "new-session"
+      "-A"
+      "-s"
+      "phone"
+      "${pkgs.zsh}/bin/zsh -l"
+    ];
+  };
+
+  # system services do not inherit the graphical login's user PATH.
+  systemd.services.ttyd.environment.PATH = lib.mkForce "/home/merulox/.local/bin:/home/merulox/scripts:/run/wrappers/bin:/home/merulox/.nix-profile/bin:/nix/profile/bin:/home/merulox/.local/state/nix/profile/bin:/etc/profiles/per-user/merulox/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
+
+  # Publish ttyd only on the authenticated tailnet using Tailscale HTTPS.
+  # Funnel is intentionally not used.
+  systemd.services.phone-terminal-serve = {
+    description = "Private phone terminal via Tailscale Serve";
+    after = [ "tailscaled.service" "ttyd.service" ];
+    wants = [ "tailscaled.service" ];
+    requires = [ "ttyd.service" ];
+    wantedBy = [ "multi-user.target" ];
+    preStart = "${pkgs.tailscale}/bin/tailscale serve reset";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=443 127.0.0.1:7681";
+      Restart = "on-failure";
+      RestartSec = "10s";
+    };
   };
   #programs.nm-applet.enable = true;
   #networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
@@ -322,7 +429,8 @@ in
   users.users.merulox = {
     isNormalUser = true;
     description = "merulox";
-    extraGroups = [ "audio" "networkmanager" "wheel" "docker" "libvirtd" "input" "plugdev" ];
+    linger = true;
+    extraGroups = [ "audio" "networkmanager" "wheel" "docker" "kvm" "libvirtd" "input" "plugdev" ];
     packages = with pkgs; [];
     uid = 1000;
     shell = pkgs.zsh;
@@ -426,19 +534,37 @@ in
 
   # Shell Aliases
   environment.shellAliases = {
-    update = "sudo nixos-rebuild switch"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p"; airb = "~/scripts/airb"; aird = "~/scripts/aird"; realm = "realm-session";}; 
- 
-  # Cachix
-    nix.settings = {
-      substituters = [ "https://ezkea.cachix.org" "https://nix-gaming.cachix.org" ];
-      trusted-public-keys = [ "ezkea.cachix.org-1:ioBmUbJTZIKsHmWWXPe1FSFbeVe+afhfgqgTSNd34eI=" "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4=" ];
-    };
+    update = "sudo nixos-rebuild switch --flake $HOME/git/dotfiles/nixos#navi"; i3config = "nvim ~/.config/i3/config"; zshrc = "nvim ~/.zshrc"; aliases = "nvim ~/.aliases"; bconnect="~/scripts/bconnect"; dconnect = "~/scripts/dconnect"; conf = "cd ~/.config && cd"; rate = "xset r rate 300 25"; chmodall = "sudo chmod 777"; xlayout = "~/.config/i3/xrandr-layout.sh"; nconf = "nvim /etc/nixos/configuration.nix"; ll = "ls -l"; homenix = "nvim /etc/nixos/home.nix"; mb="WINEPREFIX='/home/merulox/MusicBeePrefix' wine '/home/merulox/MusicBeePrefix/drive_c/users/merulox/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/MusicBee/MusicBee.lnk'"; lt = "exa --icons "; ltt = "exa --icons -1"; dotfiles = "cd ~/git/dotfiles && git commit -a -m things && git push"; n = "ncmpcpp"; vim = "nvim"; xmo = "vim ~/.config/xmonad/xmonad.hs"; xmob = "vim ~/.config/xmobar/xmobar.config"; p2 = "sudo protonvpn c --p2p"; airb = "~/scripts/airb"; aird = "~/scripts/aird"; realm = "realm-session";};
+
+  # Nix store retention and pressure safeguards
+  nix.gc = {
+    automatic = true;
+    dates = "daily";
+    options = "--delete-older-than 14d";
+    randomizedDelaySec = "45min";
+  };
+  nix.settings = {
+    auto-optimise-store = true;
+    min-free = 161061273600; # 150 GiB; accounts for the ext4 root reserve
+    max-free = 268435456000; # 250 GiB target after pressure-triggered GC
+    substituters = [ "https://ezkea.cachix.org" "https://nix-gaming.cachix.org" ];
+    trusted-public-keys = [ "ezkea.cachix.org-1:ioBmUbJTZIKsHmWWXPe1FSFbeVe+afhfgqgTSNd34eI=" "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4=" ];
+  };
   
 
   # mpd
   services.mpd = {
   enable = true;
-  settings.music_directory = "/mnt/data/Audio/Music";
+  settings = {
+    music_directory = "/mnt/data/Audio/Music";
+    audio_output = [
+      {
+        type = "pipewire";
+        name = "PipeWire";
+        mixer_type = "software";
+      }
+    ];
+  };
   user = "merulox";
   };
   #type "pipewire"
@@ -446,13 +572,35 @@ in
     XDG_RUNTIME_DIR = "/run/user/1000";
   };
 
-  programs.nix-ld.enable = true;
+  # Navidrome — browser/Subsonic music server backed by the MPD library.
+  services.navidrome = {
+    enable = true;
+    settings = {
+      Address = "127.0.0.1";
+      Port = 4533;
+      MusicFolder = "/mnt/data/Audio/Music";
+      EnableInsightsCollector = false;
+      # Re-enable only after rotating the previously embedded shared secret.
+      LastFM.enabled = false;
+    };
+  };
+
+  # Credentials stay out of the Nix store and are read by systemd at runtime.
+  systemd.services.navidrome.serviceConfig.EnvironmentFile =
+    "/home/merulox/.secrets/navidrome.env";
+
+  programs.nix-ld = {
+    enable = true;
+    libraries = with pkgs; [
+      icu
+    ];
+  };
   # Genesis — persistent agent daemon + Telegram bridge
   systemd.services.genesis-bridge = {
     description = "Genesis Telegram bridge (@meruloxsgenesisbot)";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
+    wantedBy = [ ]; # Intentionally paused; keep available for an explicit runtime-v2 cutover.
     unitConfig = {
       StartLimitIntervalSec = "300";
       StartLimitBurst = 5;
@@ -469,11 +617,42 @@ in
     };
   };
 
+  # Direct, durable operator transport into one persistent OMP session.
+  # It is on-demand and mutually exclusive with every legacy Genesis poller.
+  systemd.services.genesis-omp-bridge = {
+    description = "Genesis OMP Telegram bridge (@meruloxsgenesisbot)";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ ];
+    conflicts = [ "genesis-bridge.service" "genesis.service" ];
+    unitConfig = {
+      StartLimitIntervalSec = "300";
+      StartLimitBurst = 5;
+    };
+    serviceConfig = {
+      User = "merulox";
+      Group = "users";
+      WorkingDirectory = "/home/merulox";
+      ExecStart = "${pkgs.python3}/bin/python3 /home/merulox/projects/genesis/telegram_omp.py";
+      Environment = [
+        "HOME=/home/merulox"
+        "GENESIS_OMP_UNATTENDED=1"
+        "PATH=/home/merulox/.local/bin:/home/merulox/scripts:${pkgs.python3}/bin:${pkgs.ffmpeg}/bin:${pkgs.whisper-cpp}/bin:/run/current-system/sw/bin:/run/wrappers/bin"
+      ];
+      Restart = "on-failure";
+      RestartSec = "5s";
+      TimeoutStopSec = "45s";
+      KillMode = "mixed";
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
+  };
+
   systemd.services.genesis = {
     description = "Genesis agent daemon";
     after = [ "network-online.target" "genesis-bridge.service" ];
     wants = [ "network-online.target" "genesis-bridge.service" ];
-    wantedBy = [ "multi-user.target" ];
+    wantedBy = [ ]; # Intentionally paused; legacy daemon is not a production reliability boundary.
     unitConfig = {
       StartLimitIntervalSec = "300";
       StartLimitBurst = 3;
@@ -509,8 +688,18 @@ in
   };
   
   # virtualisation / kvm / vm
-  virtualisation.libvirtd.enable = true;
+  virtualisation.libvirtd = {
+    enable = true;
+
+    qemu = {
+      swtpm.enable = true;
+      vhostUserPackages = with pkgs; [virtiofsd];
+    };
+  };
+  programs.virt-manager.enable = true;
   programs.dconf.enable = true; # virt-manager requires dconf to remember settings
+  virtualisation.spiceUSBRedirection.enable = true;
+  networking.firewall.trustedInterfaces = [ "virbr0" ];
 
   # japanese / french accents input
   i18n.inputMethod = {
@@ -528,7 +717,6 @@ in
     QT_IM_MODULE = "fcitx";
     GTK_IM_MODULE = "fcitx";
     SDL_IM_MODULE = "fcitx";
-    OPENROUTER_API_KEY = "~/.secrets/openrouter-api-key.txt";
   };
   # KDE mime apps fix
   environment.etc."/xdg/menus/plasma-applications.menu".text = builtins.readFile "${pkgs.kdePackages.plasma-workspace}/etc/xdg/menus/plasma-applications.menu";
@@ -645,7 +833,6 @@ in
   };
 
   environment.systemPackages = with pkgs; [
-  orca.packages.${pkgs.system}.default
   r2modman
   restic
   # Security tools
@@ -687,8 +874,8 @@ in
   mpv
   mpvScripts.mpris
   vlc
-  zathura
   coreutils-full
+  (lib.hiPrio file)
   toybox
   kdePackages.kate
   gnome-icon-theme
@@ -845,7 +1032,7 @@ in
   uget
   haskellPackages.xmobar
   trayer
-  xorg.xev
+  xev
   i3-layout-manager
   htop
   fzf
@@ -854,7 +1041,6 @@ in
   kdePackages.kfind
   rofi
   xsel
-  virt-manager
   hypnotix
   tor-browser
   ledger-live-desktop
@@ -862,6 +1048,8 @@ in
   protontricks
   cpu-x
   piper
+  piper-tts
+  signalerPiperVoice
   #samba4Full # stuff for YosugaNoSora/wine
   #dolphin-emu
   #deadbeef-with-plugins
@@ -928,5 +1116,25 @@ in
   whisperx
   mission-center
   vicinae
+  zathura
+  burpsuite
+  tradingview
+  proton-pass
+  dirb
+  termusic
+  kew
+  musikcube
+  superfile
+  yazi
+  caido-desktop
+  caido-cli
+  plover
+  bloodhound
+  networkmanager_dmenu
+  unstable.sonic-pi
+  supercollider
+  kdePackages.kleopatra
+  gpg-tui
+  termius
   ];
 }

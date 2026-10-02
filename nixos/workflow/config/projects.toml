@@ -1,0 +1,104 @@
+# Machine-local routing only: paths, repo-native state adapters, Slack channels,
+# and command aliases. This file does not define project lifecycle, priority,
+# ownership, thesis, or portfolio membership.
+#
+# Realm is the sole portfolio authority:
+# /home/merulox/projects/realm/portfolio.toml
+# A route here is not evidence that a project belongs in that portfolio.
+
+[workflow]
+realm_portfolio = "/home/merulox/projects/realm/portfolio.toml"
+templates_dir = "/home/merulox/.local/share/dev-workflow/templates/project"
+
+[slack]
+ops_channel = "agent-ops"
+attention_channel = "attention"
+
+[projects.realm]
+path = "/home/merulox/projects/realm"
+channel = "proj-realm"
+aliases = ["system-model", "infra"]
+
+[projects.aperture]
+path = "/home/merulox/projects/aperture"
+state_dir = ".agent"
+channel = "proj-aperture"
+aliases = ["city", "ops-map"]
+
+[projects.commander]
+path = "/home/merulox/projects/commander"
+channel = "proj-commander"
+aliases = ["cmd", "control-center"]
+
+[projects.boreal]
+path = "/home/merulox/projects/boreal"
+channel = "proj-boreal"
+aliases = ["bn", "boreal-numerique"]
+
+[projects.genesis]
+path = "/home/merulox/projects/genesis"
+state_dir = ".agent"
+channel = "proj-genesis"
+aliases = ["voice", "gen"]
+
+[projects.the-trader]
+path = "/home/merulox/projects/the-trader"
+channel = "proj-the-trader"
+aliases = ["trader", "quant-lab"]
+
+[projects.syntra]
+path = "/home/merulox/syntra"
+channel = "proj-syntra"
+aliases = ["shopify"]
+
+[projects.onchain-terminal]
+path = "/home/merulox/projects/onchain-terminal"
+channel = "proj-onchain-terminal"
+aliases = ["capital-map", "onchain"]
+
+[projects.signaler]
+path = "/home/merulox/projects/signaler"
+channel = "proj-signaler"
+aliases = ["media"]
+
+[projects.orbit]
+path = "/home/merulox/projects/orbit"
+state_dir = ".agent"
+channel = "proj-orbit"
+aliases = ["loops"]
+
+[projects.market-lab]
+path = "/home/merulox/projects/market-lab"
+channel = "proj-market-lab"
+aliases = ["markets"]
+
+[projects.dickfit]
+path = "/home/merulox/projects/dickfit"
+channel = "proj-dickfit"
+aliases = ["df"]
+
+[projects.agentic-improvement-v0]
+path = "/home/merulox/projects/agentic-improvement-v0"
+channel = "proj-agentic-improvement-v0"
+aliases = ["agentic-improvement", "aiv0"]
+
+[projects.research]
+path = "/home/merulox/projects/research"
+channel = "proj-research"
+aliases = ["knowledge"]
+
+[projects.navi]
+path = "/home/merulox/projects/navi"
+state_dir = ".agent"
+channel = "proj-navi"
+aliases = ["workstation"]
+
+[projects.dotfiles]
+path = "/home/merulox/git/dotfiles"
+channel = "proj-dotfiles"
+aliases = ["dots"]
+
+[projects.birdclaw]
+path = "/home/merulox/git/birdclaw"
+channel = "proj-birdclaw"
+aliases = ["bird"]

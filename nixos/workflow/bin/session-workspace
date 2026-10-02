@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+"""
+session-workspace — lightweight coordination layer for concurrent Claude sessions.
+
+Prevents two sessions from editing the same files or building duplicate infrastructure.
+
+Usage:
+  session-workspace claim <session> <resources...>         # merge resources into an owner
+  session-workspace claim-new <session> <resources...>     # atomically claim only if owner is new
+  session-workspace claim-ensure <session> <resources...>  # atomically create or verify an owner
+  session-workspace claim-ensure-generation <session> <generation> <resources...>
+  session-workspace claim-restore <session> <prior-generation> <resources...>
+  session-workspace release <session>                     # administrative unconditional release
+  session-workspace release-if <session> <generation>     # compare-and-delete acquired generation
+  session-workspace migrate-generations                    # bind legacy owners once
+  session-workspace status                                # show active claims
+  session-workspace check <file_or_component>             # who owns this?
+  session-workspace context                               # full context for a new session
+                                                         # (what exists, who's building what)
+"""
+
+import fcntl
+import json
+import os
+import sys
+import uuid
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+
+WORKSPACE_FILE = Path(
+    os.environ.get("OMP_WORKSPACE_PATH", Path.home() / ".local/share/claude-sessions/workspace.json")
+).expanduser()
+TOOLS_INDEX = Path.home() / ".local/share/claude-sessions/tools-index.json"
+class WorkspaceError(RuntimeError):
+    pass
+
+
+
+
+@contextmanager
+def _locked(path: Path, *, exclusive: bool):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    lock_path = path.with_name(f"{path.name}.lock")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.fchmod(descriptor, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _load(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError) as exc:
+        raise WorkspaceError(f"cannot read registry {path}: {exc}") from exc
+def _load_workspace() -> dict:
+    data = _load(WORKSPACE_FILE)
+    if not isinstance(data, dict):
+        raise WorkspaceError(f"invalid workspace registry structure: {WORKSPACE_FILE}")
+    for owner, record in data.items():
+        if not isinstance(owner, str) or not owner or not isinstance(record, dict):
+            raise WorkspaceError(f"invalid workspace owner record: {owner!r}")
+        claims = record.get("claims")
+        if not isinstance(claims, list) or any(not isinstance(item, str) or not item for item in claims):
+            raise WorkspaceError(f"invalid claims for workspace owner: {owner}")
+        for field in ("since", "updated", "generation"):
+            if field in record and (not isinstance(record[field], str) or not record[field]):
+                raise WorkspaceError(f"invalid {field} for workspace owner: {owner}")
+    return data
+
+
+
+
+def _save(path: Path, data: dict):
+    temporary: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as handle:
+            temporary = handle.name
+            os.fchmod(handle.fileno(), 0o600)
+            json.dump(data, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary is not None:
+            Path(temporary).unlink(missing_ok=True)
+
+
+def cmd_claim(
+    session: str,
+    resources: list[str],
+    *,
+    require_new: bool = False,
+    ensure: bool = False,
+    expected_generation: str | None = None,
+    restore_if_absent: bool = False,
+):
+    if not session or not resources or any(not resource for resource in resources):
+        raise WorkspaceError("claim owner and resources must be non-empty")
+    created = False
+    with _locked(WORKSPACE_FILE, exclusive=True):
+        data = _load_workspace()
+        if require_new and session in data:
+            raise WorkspaceError(f"cc-{session} already owns workspace claims")
+        if expected_generation is not None:
+            existing_record = data.get(session)
+            if existing_record is None and not restore_if_absent:
+                raise WorkspaceError(f"cc-{session} claim generation no longer exists")
+            if existing_record is not None:
+                if existing_record.get("generation") != expected_generation:
+                    raise WorkspaceError(f"cc-{session} claim generation changed")
+                missing = sorted(set(resources) - set(existing_record["claims"]))
+                if missing:
+                    raise WorkspaceError(
+                        f"cc-{session} owns different workspace claims; missing: {', '.join(missing)}"
+                    )
+                generation = expected_generation
+                print("claim_created=false")
+                print(f"claim_generation={generation}")
+                return
+            conflicts = [
+                f"{resource} already claimed by cc-{owner}"
+                for resource in resources
+                for owner, info in data.items()
+                if resource in info["claims"]
+            ]
+            if conflicts:
+                raise WorkspaceError("; ".join(conflicts))
+            generation = str(uuid.uuid4())
+            created_at = datetime.now().isoformat()[:19]
+            data[session] = {
+                "claims": sorted(set(resources)),
+                "since": created_at,
+                "updated": created_at,
+                "generation": generation,
+            }
+            _save(WORKSPACE_FILE, data)
+            print("claim_created=true")
+            print(f"claim_generation={generation}")
+            return
+        if ensure and session in data:
+            existing_record = data[session]
+            missing = sorted(set(resources) - set(existing_record["claims"]))
+            if missing:
+                raise WorkspaceError(
+                    f"cc-{session} owns different workspace claims; missing: {', '.join(missing)}"
+                )
+            generation = existing_record.get("generation")
+            if not generation:
+                generation = str(uuid.uuid4())
+                existing_record["generation"] = generation
+                existing_record["updated"] = datetime.now().isoformat()[:19]
+                _save(WORKSPACE_FILE, data)
+            print("claim_created=false")
+            print(f"claim_generation={generation}")
+            return
+        conflicts = []
+        for resource in resources:
+            for owner, info in data.items():
+                if owner != session and resource in info["claims"]:
+                    conflicts.append(f"{resource} already claimed by cc-{owner}")
+        if conflicts:
+            raise WorkspaceError("; ".join(conflicts))
+
+        previous = data.get(session, {})
+        created = session not in data
+        generation = previous.get("generation") or str(uuid.uuid4())
+        data[session] = {
+            "claims": sorted(set(previous.get("claims", []) + resources)),
+            "since": previous.get("since", datetime.now().isoformat()[:19]),
+            "updated": datetime.now().isoformat()[:19],
+            "generation": generation,
+        }
+        _save(WORKSPACE_FILE, data)
+
+    print(f"claim_created={'true' if created else 'false'}")
+    print(f"claim_generation={generation}")
+    print(f"✓ cc-{session} claimed: {', '.join(resources)}")
+
+
+def cmd_release(session: str, generation: str | None = None):
+    with _locked(WORKSPACE_FILE, exclusive=True):
+        data = _load_workspace()
+        record = data.get(session)
+        if record is not None and generation is not None and record.get("generation") != generation:
+            raise WorkspaceError(f"cc-{session} claim generation changed; retained")
+        if record is not None:
+            del data[session]
+            _save(WORKSPACE_FILE, data)
+    print(f"✓ cc-{session} released all claims")
+
+
+def cmd_migrate_generations():
+    with _locked(WORKSPACE_FILE, exclusive=True):
+        data = _load_workspace()
+        changed = 0
+        for record in data.values():
+            if not record.get("generation"):
+                record["generation"] = str(uuid.uuid4())
+                record["updated"] = datetime.now().isoformat()[:19]
+                changed += 1
+        if changed:
+            _save(WORKSPACE_FILE, data)
+    print(f"migrated_generations={changed}")
+
+
+def cmd_status():
+    with _locked(WORKSPACE_FILE, exclusive=False):
+        data = _load_workspace()
+    if not data:
+        print("No active workspace claims.")
+        return
+    for session, info in data.items():
+        claims = info.get("claims", [])
+        since  = info.get("since", "?")
+        print(f"cc-{session}  (since {since})")
+        for c in claims:
+            print(f"  └ {c}")
+
+
+def cmd_check(resource: str):
+    with _locked(WORKSPACE_FILE, exclusive=False):
+        data = _load_workspace()
+    for session, info in data.items():
+        if resource in info.get("claims", []):
+            print(f"cc-{session}")
+            return
+    print("free")
+
+
+def cmd_register_tool(name: str, path: str, description: str):
+    """Register a script/tool so other sessions can discover it."""
+    with _locked(TOOLS_INDEX, exclusive=True):
+        tools = _load(TOOLS_INDEX)
+        tools[name] = {
+            "path": path,
+            "description": description,
+            "registered": datetime.now().isoformat()[:19],
+        }
+        _save(TOOLS_INDEX, tools)
+    print(f"✓ Registered tool: {name} → {path}")
+
+
+def cmd_context():
+    """
+    Print a context block for injecting into a new Claude session.
+    Tells it: what's already built, who's working on what, what to avoid.
+    """
+    with _locked(WORKSPACE_FILE, exclusive=False):
+        data = _load_workspace()
+    with _locked(TOOLS_INDEX, exclusive=False):
+        tools = _load(TOOLS_INDEX)
+
+    lines = ["=== SESSION WORKSPACE CONTEXT ===\n"]
+
+    if tools:
+        lines.append("EXISTING TOOLS (don't rebuild these):")
+        for name, info in tools.items():
+            lines.append(f"  {name}: {info['description']} → {info['path']}")
+        lines.append("")
+
+    if data:
+        lines.append("ACTIVE SESSIONS (avoid their claimed files/components):")
+        for session, info in data.items():
+            claims = info.get("claims", [])
+            lines.append(f"  cc-{session}: {', '.join(claims)}")
+        lines.append("")
+
+    lines.append("SCRIPTS IN ~/scripts/:")
+    scripts = sorted(Path.home().glob("scripts/*"))
+    for s in scripts:
+        if s.is_file() and not s.name.startswith("."):
+            lines.append(f"  {s.name}")
+
+    print("\n".join(lines))
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__); return
+
+    cmd = args[0]
+    if cmd in {"claim", "claim-new", "claim-ensure"} and len(args) >= 3:
+        cmd_claim(
+            args[1],
+            args[2:],
+            require_new=cmd == "claim-new",
+            ensure=cmd == "claim-ensure",
+        )
+    elif cmd == "claim-ensure-generation" and len(args) >= 4:
+        cmd_claim(args[1], args[3:], expected_generation=args[2])
+    elif cmd == "claim-restore" and len(args) >= 4:
+        cmd_claim(
+            args[1],
+            args[3:],
+            expected_generation=args[2],
+            restore_if_absent=True,
+        )
+    elif cmd == "release-if" and len(args) == 3:
+        cmd_release(args[1], args[2])
+    elif cmd == "release" and len(args) == 2:
+        cmd_release(args[1])
+    elif cmd == "migrate-generations":
+        cmd_migrate_generations()
+    elif cmd == "status":
+        cmd_status()
+    elif cmd == "check" and len(args) >= 2:
+        cmd_check(args[1])
+    elif cmd == "register" and len(args) >= 4:
+        cmd_register_tool(args[1], args[2], " ".join(args[3:]))
+    elif cmd == "context":
+        cmd_context()
+    else:
+        print(__doc__)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except WorkspaceError as exc:
+        print(f"session-workspace: {exc}", file=sys.stderr)
+        raise SystemExit(1)
