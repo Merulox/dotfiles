@@ -31,6 +31,7 @@ SLACK_API_BASE = "https://slack.com/api"
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 SLACK_CONVERSATION_ID_RE = re.compile(r"^[CGD][A-Z0-9]+$")
 SLACK_CHANNEL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
+SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9]{8,}$")
 
 
 class DevError(RuntimeError):
@@ -436,6 +437,17 @@ def slack_channels() -> tuple[str, str]:
         normalize_slack_channel(str(ops), "Slack operations channel"),
         normalize_slack_channel(str(attention), "Slack attention channel"),
     )
+
+
+def slack_member_ids() -> list[str]:
+    raw = slack_settings().get("member_ids", [])
+    if not isinstance(raw, list) or any(not isinstance(value, str) for value in raw):
+        raise DevError("Slack member_ids must be a list of Slack user IDs")
+    member_ids = list(dict.fromkeys(value.strip() for value in raw))
+    invalid = [value for value in member_ids if not SLACK_USER_ID_RE.fullmatch(value)]
+    if invalid:
+        raise DevError(f"Invalid Slack member ID: {invalid[0]}")
+    return member_ids
 
 
 def report_delivery_plan(project: dict[str, Any], kind: str, message: str, next_step: str = "") -> list[dict[str, str]]:
@@ -1188,6 +1200,16 @@ def slack_call(method: str, values: dict[str, str] | None = None) -> dict[str, A
     return payload
 
 
+def invite_slack_member(channel_id: str, member_id: str) -> str:
+    try:
+        slack_call("conversations.invite", {"channel": channel_id, "users": member_id})
+    except SlackAPIError as exc:
+        if exc.method == "conversations.invite" and exc.error == "already_in_channel":
+            return "existing"
+        raise
+    return "invited"
+
+
 def list_slack_channels() -> dict[str, str]:
     found: dict[str, str] = {}
     cursor = ""
@@ -1214,11 +1236,13 @@ def save_channel_cache(channels: dict[str, str]) -> None:
 
 def cmd_slack_plan(_: argparse.Namespace) -> tuple[Any, str]:
     channels = desired_slack_channels()
+    slack_member_ids()
     return {"apply": False, "channels": channels}, "Plan (no changes):\n" + "\n".join(f"- ensure #{name}" for name in channels)
 
 
 def cmd_slack_bootstrap(args: argparse.Namespace) -> tuple[Any, str]:
     desired = desired_slack_channels()
+    member_ids = slack_member_ids()
     if not args.apply:
         return cmd_slack_plan(args)
     names = [name for name in desired if not SLACK_CONVERSATION_ID_RE.fullmatch(name)]
@@ -1232,16 +1256,36 @@ def cmd_slack_bootstrap(args: argparse.Namespace) -> tuple[Any, str]:
         if channel.get("id"):
             found[name] = str(channel["id"])
             created.append(name)
-    save_channel_cache({name: found[name] for name in names if name in found})
+    joined: list[str] = []
+    for name in names:
+        channel_id = found.get(name)
+        if not channel_id:
+            continue
+        slack_call("conversations.join", {"channel": channel_id})
+        joined.append(name)
     missing = [name for name in names if name not in found]
     if missing:
         raise DevError(f"Slack channels unresolved: {', '.join(missing)}")
+    member_results: list[dict[str, str]] = []
+    for name in names:
+        for member_id in member_ids:
+            member_results.append({
+                "channel": name,
+                "member_id": member_id,
+                "status": invite_slack_member(found[name], member_id),
+            })
+    save_channel_cache({name: found[name] for name in names})
     payload = {
         "apply": True, "created": created,
         "existing": [name for name in desired if name not in created],
+        "joined": joined,
+        "members": member_results,
         "channels": desired,
     }
-    return payload, f"Slack bootstrap complete: created {len(created)}, existing {len(desired) - len(created)}."
+    return payload, (
+        f"Slack bootstrap complete: created {len(created)}, "
+        f"existing {len(desired) - len(created)}, member routes {len(member_results)}."
+    )
 
 
 def outbox_state() -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:

@@ -29,6 +29,7 @@ class SlackHandler(BaseHTTPRequestHandler):
     not_in_channel_once = False
     drop_after_commit = 0
     committed: dict[str, str] = {}
+    memberships: set[tuple[str, str]] = set()
     lock = threading.Lock()
 
     def do_POST(self) -> None:
@@ -53,6 +54,13 @@ class SlackHandler(BaseHTTPRequestHandler):
                 payload = {"ok": True, "channel": {"id": channel_id, "name": name}}
             elif self.path.endswith("/conversations.join"):
                 payload = {"ok": True, "channel": {"id": form["channel"][0]}}
+            elif self.path.endswith("/conversations.invite"):
+                membership = (form["channel"][0], form["users"][0])
+                if membership in type(self).memberships:
+                    payload = {"ok": False, "error": "already_in_channel"}
+                else:
+                    type(self).memberships.add(membership)
+                    payload = {"ok": True, "channel": {"id": form["channel"][0]}}
             elif self.path.endswith("/chat.postMessage"):
                 client_msg_id = form.get("client_msg_id", [""])[0]
                 if type(self).not_in_channel_once:
@@ -117,9 +125,10 @@ class DevTest(unittest.TestCase):
         SlackHandler.drop_after_commit = 0
         SlackHandler.not_in_channel_once = False
         SlackHandler.committed = {}
+        SlackHandler.memberships = set()
         api_base = f"http://127.0.0.1:{self.server.server_port}/api"
         self.config.write_text(
-            f'''[slack]\nops_channel = "agent-ops"\nattention_channel = "attention"\napi_base = "https://attacker.invalid/api"\n\n[projects.alpha]\npath = {json.dumps(str(self.alpha))}\nchannel = "proj-alpha"\naliases = ["a"]\n\n[projects.beta]\npath = {json.dumps(str(self.beta))}\nchannel = "proj-beta"\n''',
+            f'''[slack]\nops_channel = "agent-ops"\nattention_channel = "attention"\nmember_ids = ["UOWNER123", "UOPS45678"]\napi_base = "https://attacker.invalid/api"\n\n[projects.alpha]\npath = {json.dumps(str(self.alpha))}\nchannel = "proj-alpha"\naliases = ["a"]\n\n[projects.beta]\npath = {json.dumps(str(self.beta))}\nchannel = "proj-beta"\n''',
             encoding="utf-8",
         )
         self.env = os.environ.copy()
@@ -914,6 +923,56 @@ class DevTest(unittest.TestCase):
         self.assertNotIn("xoxb-super-secret-token", cache)
         self.assertNotIn("xoxb-super-secret-token", json.dumps(applied))
 
+    def test_slack_bootstrap_reconciles_bot_and_human_memberships_idempotently(self) -> None:
+        first = self.run_json("slack", "bootstrap", "--apply")
+        joins = [
+            request["form"]["channel"][0]
+            for request in SlackHandler.requests
+            if str(request["path"]).endswith("/conversations.join")
+        ]
+        invites = [
+            (request["form"]["channel"][0], request["form"]["users"][0])
+            for request in SlackHandler.requests
+            if str(request["path"]).endswith("/conversations.invite")
+        ]
+        expected_memberships = {
+            (channel_id, member_id)
+            for channel_id in SlackHandler.channels.values()
+            for member_id in ("UOWNER123", "UOPS45678")
+        }
+        self.assertEqual(set(first["joined"]), set(SlackHandler.channels))
+        self.assertEqual(set(joins), set(SlackHandler.channels.values()))
+        self.assertEqual(set(invites), expected_memberships)
+        self.assertEqual({result["status"] for result in first["members"]}, {"invited"})
+
+        SlackHandler.requests = []
+        second = self.run_json("slack", "bootstrap", "--apply")
+        repeated_invites = [
+            (request["form"]["channel"][0], request["form"]["users"][0])
+            for request in SlackHandler.requests
+            if str(request["path"]).endswith("/conversations.invite")
+        ]
+        self.assertEqual(second["created"], [])
+        self.assertEqual(set(second["joined"]), set(SlackHandler.channels))
+        self.assertEqual(set(repeated_invites), expected_memberships)
+        self.assertEqual({result["status"] for result in second["members"]}, {"existing"})
+
+    def test_slack_bootstrap_rejects_invalid_member_ids_before_api_calls(self) -> None:
+        invalid = self.root / "invalid-members.toml"
+        invalid.write_text(
+            self.config.read_text(encoding="utf-8").replace(
+                'member_ids = ["UOWNER123", "UOPS45678"]',
+                'member_ids = "UOWNER123"',
+            ),
+            encoding="utf-8",
+        )
+        env = dict(self.env, DEV_WORKFLOW_CONFIG=str(invalid))
+        for argv in (("slack", "plan"), ("slack", "bootstrap", "--apply")):
+            rejected = self.run_dev(*argv, check=False, env=env)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("member_ids must be a list", rejected.stderr)
+        self.assertEqual(SlackHandler.requests, [])
+
     def test_slack_bootstrap_skips_direct_conversation_ids(self) -> None:
         direct = self.root / "direct.toml"
         direct.write_text(
@@ -1003,6 +1062,7 @@ channel = "DBETA123"
         self.run_dev("report", "alpha", "--type", "progress", "--message", "join channel")
         self.run_dev("slack", "bootstrap", "--apply")
         before_lists = sum(str(request["path"]).endswith("/conversations.list") for request in SlackHandler.requests)
+        before_joins = sum(str(request["path"]).endswith("/conversations.join") for request in SlackHandler.requests)
         SlackHandler.not_in_channel_once = True
         result = self.run_json("slack", "flush")
         self.assertEqual(result, {"failed": 0, "pending": 0, "sent": 2})
@@ -1010,7 +1070,7 @@ channel = "DBETA123"
         self.assertEqual(after_lists, before_lists + 1)
         joins = [request for request in SlackHandler.requests if str(request["path"]).endswith("/conversations.join")]
         posts = [request for request in SlackHandler.requests if str(request["path"]).endswith("/chat.postMessage")]
-        self.assertEqual(len(joins), 1)
+        self.assertEqual(len(joins), before_joins + 1)
         self.assertEqual(len(posts), 3)
         self.assertEqual(
             posts[0]["form"]["client_msg_id"][0],

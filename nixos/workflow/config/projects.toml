@@ -13,6 +13,7 @@ templates_dir = "/home/merulox/.local/share/dev-workflow/templates/project"
 [slack]
 ops_channel = "agent-ops"
 attention_channel = "attention"
+member_ids = ["U0C725ZLQKA"]
 
 [projects.realm]
 path = "/home/merulox/projects/realm"
