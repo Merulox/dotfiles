@@ -128,7 +128,7 @@ class DevTest(unittest.TestCase):
         SlackHandler.memberships = set()
         api_base = f"http://127.0.0.1:{self.server.server_port}/api"
         self.config.write_text(
-            f'''[slack]\nops_channel = "agent-ops"\nattention_channel = "attention"\nmember_ids = ["UOWNER123", "UOPS45678"]\napi_base = "https://attacker.invalid/api"\n\n[projects.alpha]\npath = {json.dumps(str(self.alpha))}\nchannel = "proj-alpha"\naliases = ["a"]\n\n[projects.beta]\npath = {json.dumps(str(self.beta))}\nchannel = "proj-beta"\n''',
+            f'''[slack]\nops_channel = "agent-ops"\nattention_channel = "attention"\nmember_ids = ["UOWNER123", "UOPS45678"]\napi_base = "https://attacker.invalid/api"\n\n[projects.alpha]\npath = {json.dumps(str(self.alpha))}\naliases = ["a"]\n\n[projects.beta]\npath = {json.dumps(str(self.beta))}\n''',
             encoding="utf-8",
         )
         self.env = os.environ.copy()
@@ -297,7 +297,7 @@ class DevTest(unittest.TestCase):
         self.assertEqual(attention[0]["message"], "blocked")
         records = [json.loads(line) for line in (self.state / "slack-outbox.jsonl").read_text().splitlines()]
         channels = [record["channel"] for record in records if record.get("record") == "message"]
-        self.assertEqual(channels.count("proj-alpha"), 2)
+        self.assertEqual(channels.count("alpha"), 2)
         self.assertEqual(channels.count("agent-ops"), 2)
         self.assertEqual(channels.count("attention"), 1)
 
@@ -918,7 +918,7 @@ class DevTest(unittest.TestCase):
         applied = self.run_json("slack", "bootstrap", "--apply")
         self.assertTrue(applied["apply"])
         self.assertIn("attention", applied["created"])
-        self.assertIn("proj-alpha", applied["created"])
+        self.assertIn("alpha", applied["created"])
         cache = (self.state / "slack-channels.json").read_text()
         self.assertNotIn("xoxb-super-secret-token", cache)
         self.assertNotIn("xoxb-super-secret-token", json.dumps(applied))
@@ -1004,7 +1004,7 @@ channel = "DBETA123"
         )
         env = dict(self.env, DEV_WORKFLOW_CONFIG=str(normalized))
         plan = self.run_json("slack", "plan", env=env)
-        self.assertIn("proj-foo-bar", plan["channels"])
+        self.assertIn("foo-bar", plan["channels"])
 
         collision = self.root / "colliding-channels.toml"
         collision.write_text(
@@ -1037,6 +1037,26 @@ channel = "DBETA123"
         )
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("lowercase channel name", rejected.stderr)
+
+    def test_project_channels_cannot_collide_with_reserved_routing_channels(self) -> None:
+        configs = {
+            "default": f"[projects.attention]\npath = {json.dumps(str(self.alpha))}\n",
+            "custom": (
+                "[slack]\nops_channel = \"control-room\"\nattention_channel = \"urgent\"\n\n"
+                f"[projects.Control_Room]\npath = {json.dumps(str(self.alpha))}\n"
+            ),
+        }
+        for label, content in configs.items():
+            with self.subTest(label=label):
+                config = self.root / f"reserved-{label}.toml"
+                config.write_text(content, encoding="utf-8")
+                rejected = self.run_dev(
+                    "slack", "plan", check=False,
+                    env=dict(self.env, DEV_WORKFLOW_CONFIG=str(config)),
+                )
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertIn("reserved routing channel", rejected.stderr)
+        self.assertEqual(SlackHandler.requests, [])
 
     def test_slack_flush_retries_failures_and_marks_sent_durably(self) -> None:
         self.run_dev("report", "alpha", "--type", "progress", "--message", "hello")
@@ -1173,7 +1193,7 @@ channel = "DBETA123"
     def test_report_fanout_reconciles_from_durable_event_plan(self) -> None:
         self.run_dev("report", "alpha", "--type", "blocker", "--message", "durable", "--next", "recover")
         event = json.loads((self.state / "events.jsonl").read_text().splitlines()[0])
-        self.assertEqual([item["channel"] for item in event["delivery_plan"]], ["proj-alpha", "agent-ops", "attention"])
+        self.assertEqual([item["channel"] for item in event["delivery_plan"]], ["alpha", "agent-ops", "attention"])
         outbox = self.state / "slack-outbox.jsonl"
         first = outbox.read_text().splitlines()[0] + "\n"
         outbox.write_text(first, encoding="utf-8")
@@ -1254,7 +1274,7 @@ channel = "DBETA123"
         self.run_dev("report", "alpha", "--type", "progress", "--message", "refresh channel")
         self.run_dev("slack", "bootstrap", "--apply")
         before_lists = sum(str(request["path"]).endswith("/conversations.list") for request in SlackHandler.requests)
-        SlackHandler.channels["proj-alpha"] = "CNEW"
+        SlackHandler.channels["alpha"] = "CNEW"
         result = self.run_json("slack", "flush")
         self.assertEqual(result["sent"], 2)
         after_lists = sum(str(request["path"]).endswith("/conversations.list") for request in SlackHandler.requests)
@@ -1262,7 +1282,7 @@ channel = "DBETA123"
         posts = [request for request in SlackHandler.requests if str(request["path"]).endswith("/chat.postMessage")]
         self.assertEqual(posts[0]["form"]["channel"], ["CNEW"])
         cache = json.loads((self.state / "slack-channels.json").read_text())
-        self.assertEqual(cache["proj-alpha"], "CNEW")
+        self.assertEqual(cache["alpha"], "CNEW")
 
     def test_secret_permission_audit_never_prints_token(self) -> None:
         token_file = self.root / "token"

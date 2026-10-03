@@ -298,7 +298,7 @@ def normalize_slack_channel(value: str, label: str) -> str:
 
 def implicit_project_channel(project_id: str) -> str:
     slug = re.sub(r"[-_]+", "-", project_id.lower())
-    return normalize_slack_channel(f"proj-{slug}", f"implicit Slack channel for project {project_id!r}")
+    return normalize_slack_channel(slug, f"implicit Slack channel for project {project_id!r}")
 
 
 def normalize_project(project_id: str, record: dict[str, Any]) -> dict[str, Any]:
@@ -341,9 +341,16 @@ def all_projects() -> list[dict[str, Any]]:
 
 def validate_project_channel_collisions(projects: list[dict[str, Any]] | None = None) -> None:
     projects = projects if projects is not None else all_projects()
+    ops, attention = slack_channels()
+    reserved = {ops: "ops_channel", attention: "attention_channel"}
     owners: dict[str, str] = {}
     for project in projects:
         channel = str(project["channel"])
+        if channel in reserved:
+            raise DevError(
+                f"Slack channel collision: project {project['id']!r} maps to reserved "
+                f"routing channel {channel!r} ({reserved[channel]})"
+            )
         previous = owners.get(channel)
         if previous is not None and previous != project["id"]:
             raise DevError(

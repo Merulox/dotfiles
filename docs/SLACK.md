@@ -4,7 +4,7 @@ Slack is a delivery surface for workflow events, not project authority. Project 
 
 ## Current provisioning state
 
-No Slack workspace or bot token currently exists for this workflow. `dev slack plan` and all local ledger/outbox behavior are usable now. Channel creation and message delivery become live only after a workspace bot credential is injected.
+The workflow is connected to the Ghostmoney workspace. Its bot credential remains local and protected; Slack channel state is reconciled by `dev slack bootstrap --apply`.
 
 Never put a token in `projects.toml`, Git, command history, an event, or an outbox message. `dev` resolves a credential in this order:
 
@@ -20,9 +20,11 @@ Production requests are pinned to `https://slack.com/api`; project TOML cannot o
 
 | Channel | Traffic |
 |---|---|
-| `proj-<slug>` | Reports for one project. A project may configure a channel alias in `projects.toml`. |
+| `<project-slug>` | Reports for one project. The default is the normalized project ID; a project may configure a different channel in `projects.toml`. |
 | `agent-ops` | Central copy of every project report for cross-project operations. |
 | `attention` | Human-attention copy of `blocker` and `decision` reports only. |
+
+This is the intended steady-state structure: one public channel per project, plus the two cross-project routing channels above. Do not create separate channels per agent, task, or status unless sustained traffic proves that another boundary is needed. Slack stays a projection of repository/Realm state rather than a second project-management system.
 
 Bootstrap creates public channels only. Planning is the default and does not mutate Slack:
 
