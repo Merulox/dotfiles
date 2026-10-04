@@ -25,6 +25,7 @@ from typing import Any, Iterator
 
 CONTRACT_FILES = ("CONTEXT.md", "TASKS.md", "DECISIONS.md", "RECOVERY.md", "RECENT_CHANGES.md")
 ROOT_FILES = ("AGENTS.md", "PROJECT.md")
+OPTIONAL_ROOT_FILES = ("BET.md",)
 REALM_SESSION = "realm-session"
 SESSION_WORKSPACE = "session-workspace"
 SLACK_API_BASE = "https://slack.com/api"
@@ -573,7 +574,10 @@ def context_payload(project: dict[str, Any]) -> dict[str, Any]:
     state = state_path(project)
     documents: list[dict[str, str]] = []
     seen: set[Path] = set()
-    for base, names in ((project["path"], ROOT_FILES), (state, CONTRACT_FILES)):
+    for base, names in (
+        (project["path"], ROOT_FILES + OPTIONAL_ROOT_FILES),
+        (state, CONTRACT_FILES),
+    ):
         for name in names:
             path = base / name
             if path in seen or not path.exists():
@@ -598,11 +602,19 @@ def project_status(project: dict[str, Any]) -> dict[str, Any]:
         path = state / name
         if path.is_file() and path.read_text(encoding="utf-8").strip() == defaults[name].strip():
             incomplete.append(name)
+    bet_path = Path(project["path"]) / "BET.md"
+    bet_status = "missing"
+    if bet_path.is_file():
+        bet_status = (
+            "template"
+            if bet_path.read_text(encoding="utf-8").strip() == defaults["BET.md"].strip()
+            else "configured"
+        )
     return {
         "id": project["id"], "path": str(project["path"]), "exists": project["path"].is_dir(),
         "state": str(state), "native_state": state == project["path"] or state == project["path"] / ".agent",
         "files": files, "missing": [name for name, exists in files.items() if not exists],
-        "incomplete": incomplete,
+        "incomplete": incomplete, "bet": {"path": str(bet_path), "status": bet_status},
     }
 
 
@@ -636,6 +648,12 @@ def default_documents(project_id: str) -> dict[str, str]:
     defaults = {
         "AGENTS.md": f"# Agents\n\nProject: {project_id}\n\nFollow the project contract and preserve recorded decisions.\n",
         "PROJECT.md": f"# Project: {project_id}\n\n## Purpose\n\nDefine the project purpose here.\n",
+        "BET.md": (
+            "# Current bet\n\n"
+            f"- Bet ID: `{project_id}-YYYY-MM-DD-01`\n"
+            "- Status: `proposed | active | won | lost | butter | superseded`\n"
+            "- Bet: One falsifiable sentence describing what we believe will happen.\n"
+        ),
         "CONTEXT.md": "# Context\n\nCurrent project context.\n",
         "TASKS.md": "# Tasks\n\nAppend tasks below.\n",
         "DECISIONS.md": "# Decisions\n\nAppend decisions below.\n",
@@ -696,6 +714,11 @@ def cmd_init(args: argparse.Namespace) -> tuple[Any, str]:
             if not target.exists():
                 target.write_text(documents[name], encoding="utf-8")
                 created.append(str(target))
+    if args.bet:
+        target = root / "BET.md"
+        if not target.exists():
+            target.write_text(documents["BET.md"], encoding="utf-8")
+            created.append(str(target))
     registered = register_project(project_id, root)
     payload = {
         "project": project_id, "path": str(root), "state": str(state),
@@ -1511,7 +1534,7 @@ def build_parser() -> argparse.ArgumentParser:
     context = commands.add_parser("context"); context.add_argument("project"); context.set_defaults(func=cmd_context)
     status_cmd = commands.add_parser("status"); status_cmd.add_argument("project", nargs="?"); status_cmd.set_defaults(func=cmd_status)
     commands.add_parser("attention").set_defaults(func=cmd_attention)
-    init = commands.add_parser("init"); init.add_argument("path"); init.add_argument("--id"); init.set_defaults(func=cmd_init)
+    init = commands.add_parser("init"); init.add_argument("path"); init.add_argument("--id"); init.add_argument("--bet", action="store_true"); init.set_defaults(func=cmd_init)
     task = commands.add_parser("task"); task.add_argument("project"); task.add_argument("text"); task.set_defaults(func=cmd_task)
     decision = commands.add_parser("decision"); decision.add_argument("project"); decision.add_argument("text"); decision.add_argument("--status", default="accepted"); decision.set_defaults(func=cmd_decision)
     handoff = commands.add_parser("handoff"); handoff.add_argument("project"); handoff.add_argument("--to", required=True); handoff.add_argument("--summary", required=True); handoff.add_argument("--next", required=True); handoff.add_argument("--blocker"); handoff.set_defaults(func=cmd_handoff)

@@ -18,6 +18,8 @@ from pathlib import Path
 from unittest import mock
 
 CONTRACT_FILES = ("CONTEXT.md", "TASKS.md", "DECISIONS.md", "RECOVERY.md", "RECENT_CHANGES.md")
+ROOT_FILES = ("AGENTS.md", "PROJECT.md")
+OPTIONAL_ROOT_FILES = ("BET.md",)
 DEV = Path(__file__).resolve().parents[1] / "bin" / "dev"
 
 
@@ -192,6 +194,29 @@ class DevTest(unittest.TestCase):
         beta = self.run_json("status", "beta")
         self.assertEqual(beta["state"], str(self.beta))
 
+    def test_bet_status_is_optional_for_existing_projects(self) -> None:
+        status = self.run_json("status", "alpha")
+        self.assertEqual(status["missing"], [])
+        self.assertEqual(status["bet"], {
+            "path": str(self.alpha / "BET.md"),
+            "status": "missing",
+        })
+        rendered = self.run_dev("status", "alpha")
+        self.assertIn("alpha: ok", rendered.stdout)
+        self.assertNotIn("bet missing", rendered.stdout)
+
+    def test_bundled_bet_templates_are_evidence_bounded(self) -> None:
+        templates = DEV.parent.parent / "templates" / "project"
+        bet = (templates / "BET.md").read_text(encoding="utf-8")
+        agents = (templates / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("External source of truth", bet)
+        self.assertIn("do not prove metric movement", bet)
+        self.assertIn("This section applies only when the repository contains `BET.md`.", agents)
+        self.assertIn(
+            "BET-PROGRESS | <project> | metric=<value or unchanged> | moved=<yes/no>",
+            agents,
+        )
+
     def test_external_state_only_without_native_contract(self) -> None:
         gamma = self.root / "gamma"
         gamma.mkdir()
@@ -206,30 +231,39 @@ class DevTest(unittest.TestCase):
     def test_init_copies_templates_registers_and_preserves_existing_data(self) -> None:
         template_dir = self.root / "templates"
         template_dir.mkdir()
-        for name in (*CONTRACT_FILES, "AGENTS.md", "PROJECT.md"):
+        for name in (*CONTRACT_FILES, *ROOT_FILES, *OPTIONAL_ROOT_FILES):
             (template_dir / name).write_text(f"template:{name}\n", encoding="utf-8")
         fresh_config = self.root / "fresh.toml"
         fresh_config.write_text(f"[workflow]\ntemplates_dir = {json.dumps(str(template_dir))}\n", encoding="utf-8")
         env = dict(self.env, DEV_WORKFLOW_CONFIG=str(fresh_config))
         target = self.root / "new-project"
         (target / ".agent").mkdir(parents=True)
-        result = self.run_json("init", str(target), "--id", "new-project", env=env)
+        result = self.run_json("init", str(target), "--id", "new-project", "--bet", env=env)
         self.assertTrue(result["registered"])
         self.assertEqual(result["state"], str(target / ".agent"))
         self.assertEqual((target / "AGENTS.md").read_text(), "template:AGENTS.md\n")
+        self.assertEqual((target / "BET.md").read_text(), "template:BET.md\n")
         self.assertEqual((target / ".agent" / "CONTEXT.md").read_text(), "template:CONTEXT.md\n")
         self.assertFalse((target / "CONTEXT.md").exists())
         status = self.run_json("status", "new-project", env=env)
         self.assertEqual(status["incomplete"], ["CONTEXT.md", "RECOVERY.md"])
+        self.assertEqual(status["bet"]["status"], "template")
+        context = self.run_json("context", "new-project", env=env)
+        bet_document = next(item for item in context["documents"] if item["name"] == "BET.md")
+        self.assertEqual(bet_document["path"], str(target / "BET.md"))
         attention = self.run_dev("status", "new-project", env=env)
         self.assertIn("template-only CONTEXT.md, RECOVERY.md", attention.stdout)
         (target / ".agent" / "CONTEXT.md").write_text("# Context\n\nWorking behavior: initialized.\n")
         (target / ".agent" / "RECOVERY.md").write_text("# Recovery\n\nRun `dev review new-project`.\n")
         self.assertEqual(self.run_json("status", "new-project", env=env)["incomplete"], [])
+        (target / "BET.md").write_text("# Current bet\n\n- Bet: configured\n", encoding="utf-8")
+        self.assertEqual(self.run_json("status", "new-project", env=env)["bet"]["status"], "configured")
         (target / ".agent" / "TASKS.md").write_text("user data\n", encoding="utf-8")
+        bet_before = (target / "BET.md").read_text(encoding="utf-8")
         second = self.run_json("init", str(target), "--id", "new-project", env=env)
         self.assertFalse(second["registered"])
         self.assertEqual((target / ".agent" / "TASKS.md").read_text(), "user data\n")
+        self.assertEqual((target / "BET.md").read_text(encoding="utf-8"), bet_before)
         overlay = fresh_config.with_name("fresh.local.toml")
         self.assertIn("[projects.new-project]", overlay.read_text())
         self.assertNotIn("[projects.new-project]", fresh_config.read_text())
@@ -245,8 +279,9 @@ class DevTest(unittest.TestCase):
         env = dict(self.env, DEV_WORKFLOW_CONFIG=str(configured))
         result = self.run_json("init", str(target), "--id", "configured", env=env)
         self.assertEqual(result["state"], str(target / ".workflow-state"))
-        self.assertTrue((target / "AGENTS.md").is_file())
-        self.assertTrue((target / "PROJECT.md").is_file())
+        for name in ROOT_FILES:
+            self.assertTrue((target / name).is_file(), name)
+        self.assertFalse((target / "BET.md").exists())
         for name in CONTRACT_FILES:
             self.assertTrue((target / ".workflow-state" / name).is_file(), name)
             self.assertFalse((target / name).exists(), name)
