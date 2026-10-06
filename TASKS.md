@@ -23,4 +23,4 @@ Task records are append-only. Each task has one outcome, owner, state, next acti
 - Owner: Codex
 - Next: use `gh secret`; press `s` to change scope and `a` to change the consuming GitHub application.
 - Acceptance: interactive bare `gh secret` opens the Textual manager; existing subcommands pass through unchanged; values reach `gh` only over stdin; isolated rollback restores original dispatch.
-- Evidence: 13 focused tests and the complete 106-test suite passed; live pseudo-terminal smoke found the `GitHub Secrets` screen and exited 0; `setup-evidence/gh-secret-tui-20261006/VERIFICATION.txt`.
+- Evidence: 14 focused tests and the complete 107-test suite passed; live pseudo-terminal smoke found the `GitHub Secrets` screen and exited 0; `setup-evidence/gh-secret-tui-20261006/VERIFICATION.txt`.

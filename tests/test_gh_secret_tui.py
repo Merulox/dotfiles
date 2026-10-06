@@ -221,6 +221,32 @@ class GhSecretTuiTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_user_secret_flow_requires_explicit_repository_allowlist(self) -> None:
+        tool = load_tui()
+
+        class Backend:
+            def list_secrets(self, _scope):
+                return []
+
+        async def scenario() -> None:
+            app = tool.GhSecretApp(Backend(), tool.SecretScope(kind="user", app="codespaces"))
+            async with app.run_test(size=(100, 30)) as pilot:
+                await pilot.press("n")
+                await pilot.pause()
+                app.screen.query_one("#value", tool.Input).value = "TOKEN"
+                await pilot.click("#continue")
+                await pilot.pause()
+                app.screen.query_one("#value", tool.Input).value = "opaque-value"
+                await pilot.click("#continue")
+                await pilot.pause()
+                labels = " ".join(str(label.render()) for label in app.screen.query(tool.Label))
+                self.assertIn("explicit allowlist", labels)
+                self.assertNotIn("All Codespaces repositories", labels)
+                await pilot.click("#cancel")
+                await pilot.press("q")
+
+        asyncio.run(scenario())
+
     def _run_dispatch(self, command: str, *, interactive: bool) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

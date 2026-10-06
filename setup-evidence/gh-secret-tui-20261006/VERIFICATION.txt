@@ -7,7 +7,7 @@ Changed field: nixos/workflow/shell/dev-workflow.zsh gh() dispatch branch for in
 Four required artifact paths
 ----------------------------
 MODIFIED_FILE: /home/merulox/git/dotfiles/nixos/workflow/bin/gh-secret-tui
-DIFF_FILE: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/gh-secret-tui.diff
+DIFF_FILE: /home/merulox/tmp/gh-secret-tui-20261006.diff
 VERIFICATION.txt: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/VERIFICATION.txt
 ROLLBACK.sh: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/ROLLBACK.sh
 
@@ -68,13 +68,13 @@ Literal output/result: marker=GitHub Secrets
 Exit status: 0
 
 Exact focused test command: python3 -m unittest -v tests.test_gh_secret_tui
-Input: 13 deterministic unit, Textual pilot, backend, and zsh-dispatch tests
-Literal output/result: Ran 13 tests in 0.814s; OK
+Input: 14 deterministic unit, Textual pilot, backend, and zsh-dispatch tests
+Literal output/result: Ran 14 tests in 1.729s; OK
 Exit status: 0
 
 Exact complete test command: python3 -m unittest discover -v tests
 Input: complete dotfiles test suite
-Literal output/result: Ran 106 tests in 36.113s; OK
+Literal output/result: Ran 107 tests in 36.133s; OK
 Exit status: 0
 
 Authenticated read-only command: zsh -fic 'source ~/.config/dev-workflow/dev-workflow.zsh; cd /home/merulox/git/dotfiles; gh secret list --app actions --repo Merulox/dotfiles --json name --jq length'
@@ -84,12 +84,12 @@ Exit status: 0
 
 ROLLBACK
 --------
-Exact command: /tmp/tmp.ZfXFqgEzOp/setup-evidence/gh-secret-tui-20261006/ROLLBACK.sh --root /tmp/tmp.ZfXFqgEzOp
-Input: isolated copy containing the modified module, shell dispatcher, TUI, tests, and preserved originals
-Literal output/result: ROLLBACK restored bare gh secret help behavior; root=/tmp/tmp.ZfXFqgEzOp; activated=0
+Exact command: /tmp/tmp.MKHdGXLwUM/setup-evidence/gh-secret-tui-20261006/ROLLBACK.sh --root /tmp/tmp.MKHdGXLwUM
+Input: isolated copy containing the final modified module, shell dispatcher, TUI, tests, and preserved originals
+Literal output/result: ROLLBACK restored bare gh secret help behavior; root=/tmp/tmp.MKHdGXLwUM; activated=0
 Exit status: 0
 
-Exact restored-behavior command: zsh -fc 'source /tmp/tmp.ZfXFqgEzOp/nixos/workflow/shell/dev-workflow.zsh; path=(<fixture-bin> $path); gh secret'
+Exact restored-behavior command: zsh -fc 'source /tmp/tmp.MKHdGXLwUM/nixos/workflow/shell/dev-workflow.zsh; path=(<fixture-bin> $path); gh secret'
 Input: rolled-back shell source; fake original gh backend
 Literal output/result: REAL_GH:secret
 Exit status: 0
@@ -97,7 +97,7 @@ Restored behavior/status: the isolated copy removed gh-secret-tui and its test, 
 
 Live state
 ----------
-Home Manager activation: /nix/store/dap0h1cav1r431xypbdfn02hvhqlnx3f-home-manager-generation
-Installed TUI target: /nix/store/cgqiv8apbnik8xj8x66lknrmv0kzmnj3-hm_ghsecrettui
+Home Manager activation: /nix/store/m7hhrbjqbqqxlfprs9ggah700n8pm1kg-home-manager-generation
+Installed TUI target: /nix/store/i8gjp1jxpwm9f9fz486zl34wnr3whd10-hm_ghsecrettui
 Installed shell target: /nix/store/0gp0wbywp8vdq6rw7i74lpmxk54ln2bm-hm_devworkflow.zsh
-Behavior: interactive bare gh secret opens the TUI; gh secret list/set/delete/--help and all non-secret gh commands pass through unchanged; non-interactive bare gh secret preserves original help behavior.
+Behavior: interactive bare gh secret opens the TUI; gh secret list/set/delete/--help and all non-secret gh commands pass through unchanged; non-interactive bare gh secret preserves original help behavior; user Codespaces secrets always require an explicit OWNER/REPO allowlist and selected policies are prefetched with full names.
