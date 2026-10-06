@@ -24,6 +24,11 @@
     executable = true;
   };
 
+  home.file.".local/bin/slack-ops" = {
+    source = ../workflow/bin/slack-ops;
+    executable = true;
+  };
+
   home.file.".local/bin/realm-session" = {
     source = ../workflow/bin/realm-session;
     executable = true;
@@ -49,6 +54,35 @@
   xdg.dataFile."dev-workflow/templates/project" = {
     source = ../workflow/templates/project;
     recursive = true;
+  };
+
+  xdg.dataFile."dev-workflow/slack_ops" = {
+    source = ../workflow/slack_ops;
+    recursive = true;
+  };
+  systemd.user.services.slack-ops-sync = {
+    Unit = {
+      Description = "Project read-only operating state to Slack projections";
+      After = [ "network-online.target" ];
+    };
+    Service = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.python3}/bin/python ${../workflow/slack_ops/cli.py} sync --apply";
+      Environment = "PATH=${pkgs.systemd}/bin:${config.home.homeDirectory}/.local/bin:/run/current-system/sw/bin";
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+    };
+  };
+  systemd.user.timers.slack-ops-sync = {
+    Unit.Description = "Run Slack operating-state projection every 15 minutes";
+    Timer = {
+      OnBootSec = "5m";
+      OnUnitActiveSec = "15m";
+      RandomizedDelaySec = "45s";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
   };
   home.activation.migrateDevWorkflowClaimGenerations =
     lib.hm.dag.entryAfter [ "writeBoundary" ] ''

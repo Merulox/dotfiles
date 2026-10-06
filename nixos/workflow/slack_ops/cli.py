@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+"""Project-state projections and bounded Slack incident/digest emission."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+from typing import Any, Callable, Iterator
+import urllib.error
+import urllib.parse
+import urllib.request
+
+SLACK_API_BASE = "https://slack.com/api"
+DEFAULT_STATE_DIR = Path("~/.local/state/dev-workflow/slack-ops").expanduser()
+DEFAULT_WORKFLOW_STATE = Path("~/.local/state/dev-workflow").expanduser()
+Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
+
+
+class OpsError(RuntimeError):
+    """An expected operating-layer failure safe to show without credentials."""
+
+
+class SlackAPIError(OpsError):
+    def __init__(self, method: str, error: str) -> None:
+        super().__init__(f"Slack API {method} failed: {error}")
+        self.method = method
+        self.error = error
+
+
+def utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def default_runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(argv, text=True, capture_output=True, check=False)
+
+
+def parse_json_command(result: subprocess.CompletedProcess[str], label: str) -> dict[str, Any]:
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise OpsError(f"{label} failed: {detail}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise OpsError(f"{label} returned invalid JSON") from exc
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise OpsError(f"{label} returned an unsuccessful envelope")
+    body = payload.get("result")
+    if not isinstance(body, dict):
+        raise OpsError(f"{label} returned no result object")
+    return body
+
+
+def dev_result(args: list[str], runner: Runner = default_runner) -> dict[str, Any]:
+    return parse_json_command(runner(["dev", "--json", *args]), f"dev {' '.join(args)}")
+
+
+def failed_user_units(runner: Runner = default_runner) -> list[dict[str, str]]:
+    result = runner(["systemctl", "--user", "--failed", "--no-legend", "--plain", "--all"])
+    if result.returncode:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        raise OpsError(f"systemctl failed-unit query failed: {detail}")
+    units: list[dict[str, str]] = []
+    for raw in result.stdout.splitlines():
+        fields = raw.split(None, 4)
+        if not fields:
+            continue
+        units.append({
+            "unit": fields[0],
+            "load": fields[1] if len(fields) > 1 else "unknown",
+            "active": fields[2] if len(fields) > 2 else "unknown",
+            "sub": fields[3] if len(fields) > 3 else "unknown",
+            "description": fields[4] if len(fields) > 4 else "",
+        })
+    return units
+
+
+def workflow_state_dir() -> Path:
+    return Path(os.environ.get("DEV_WORKFLOW_STATE", str(DEFAULT_WORKFLOW_STATE))).expanduser()
+
+
+def ops_state_dir() -> Path:
+    return Path(os.environ.get("SLACK_OPS_STATE", str(DEFAULT_STATE_DIR))).expanduser()
+
+
+def read_json(path: Path, default: Any) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError as exc:
+        raise OpsError(f"invalid JSON state: {path}") from exc
+
+
+def atomic_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+
+
+@contextlib.contextmanager
+def state_lock() -> Iterator[None]:
+    directory = ops_state_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
+    lock_path = directory / "sync.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def cached_channels() -> dict[str, str]:
+    payload = read_json(workflow_state_dir() / "slack-channels.json", {})
+    if not isinstance(payload, dict):
+        raise OpsError("Slack channel cache must be a JSON object")
+    return {str(name): str(channel_id) for name, channel_id in payload.items()}
+
+
+def outbound_usage() -> dict[str, dict[str, Any]]:
+    path = workflow_state_dir() / "slack-outbox.jsonl"
+    usage: dict[str, dict[str, Any]] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return usage
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict) or record.get("record") != "message":
+            continue
+        channel = str(record.get("channel", ""))
+        if not channel:
+            continue
+        item = usage.setdefault(channel, {"sent_records": 0, "last_queued_at": None})
+        item["sent_records"] += 1
+        created_at = record.get("created_at")
+        if isinstance(created_at, str) and (item["last_queued_at"] is None or created_at > item["last_queued_at"]):
+            item["last_queued_at"] = created_at
+    return usage
+
+
+def collect_snapshot(runner: Runner = default_runner) -> dict[str, Any]:
+    plan = dev_result(["slack", "plan"], runner)
+    status = dev_result(["slack", "status"], runner)
+    desired = sorted(str(value) for value in plan.get("channels", []))
+    cache = cached_channels()
+    failed = failed_user_units(runner)
+    incidents: list[dict[str, Any]] = []
+    if int(status.get("failed", 0)) > 0 or int(status.get("pending", 0)) > 0:
+        incidents.append({
+            "id": "dev-slack-outbox",
+            "kind": "delivery",
+            "severity": "page" if int(status.get("failed", 0)) > 0 else "digest",
+            "summary": f"Slack outbox has {status.get('failed', 0)} failed and {status.get('pending', 0)} pending deliveries",
+            "evidence": str(status.get("ledger", "")),
+        })
+    for unit in failed:
+        incidents.append({
+            "id": f"systemd-user:{unit['unit']}",
+            "kind": "runtime",
+            "severity": "digest",
+            "summary": f"{unit['unit']} is {unit['active']}/{unit['sub']}",
+            "evidence": f"systemctl --user status {unit['unit']}",
+        })
+    return {
+        "schema": "slack-ops.snapshot.v1",
+        "observed_at": utc_now().isoformat(),
+        "slack_outbox": status,
+        "failed_user_units": failed,
+        "channels": {
+            "desired": desired,
+            "cached": sorted(cache),
+            "unmanaged_cached": sorted(set(cache) - set(desired)),
+            "desired_missing_from_cache": sorted(set(desired) - set(cache)),
+        },
+        "incidents": incidents,
+    }
+
+
+def token_file_path() -> Path:
+    return Path(os.environ.get("SLACK_BOT_TOKEN_FILE", "~/.secrets/slack-bot-token.txt")).expanduser()
+
+
+def token_value() -> str:
+    direct = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+    if direct:
+        return direct
+    path = token_file_path()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise OpsError(f"Slack token file is unavailable or unsafe: {path}") from exc
+    try:
+        info = os.fstat(descriptor)
+        mode = stat.S_IMODE(info.st_mode)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or mode & 0o077:
+            raise OpsError(f"Slack token file is insecure: {path}")
+        with os.fdopen(os.dup(descriptor), "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+    finally:
+        os.close(descriptor)
+    if not token:
+        raise OpsError(f"Slack token file is empty: {path}")
+    return token
+
+
+def slack_api_base() -> str:
+    injected = os.environ.get("DEV_WORKFLOW_TEST_SLACK_API_BASE")
+    if not injected:
+        return SLACK_API_BASE
+    if os.environ.get("DEV_WORKFLOW_TESTING") != "1":
+        raise OpsError("test Slack API base requires DEV_WORKFLOW_TESTING=1")
+    parsed = urllib.parse.urlsplit(injected)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname not in {"127.0.0.1", "::1"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise OpsError("test Slack API base must be a loopback-only HTTP(S) URL")
+    return injected.rstrip("/")
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
+def slack_call(method: str, values: dict[str, str] | None = None) -> dict[str, Any]:
+    body = urllib.parse.urlencode(values or {}).encode()
+    request = urllib.request.Request(
+        f"{slack_api_base()}/{method}",
+        data=body,
+        headers={"Authorization": f"Bearer {token_value()}", "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.build_opener(NoRedirectHandler).open(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        raise OpsError(f"Slack API request failed for {method}") from exc
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        error = str(payload.get("error", "unknown_error")) if isinstance(payload, dict) else "invalid_response"
+        raise SlackAPIError(method, error)
+    return payload
+
+
+def list_live_channels() -> list[dict[str, Any]]:
+    channels: list[dict[str, Any]] = []
+    cursor = ""
+    while True:
+        values = {"limit": "200", "exclude_archived": "false", "types": "public_channel"}
+        if cursor:
+            values["cursor"] = cursor
+        payload = slack_call("conversations.list", values)
+        for raw in payload.get("channels", []):
+            if not isinstance(raw, dict) or not raw.get("id") or not raw.get("name"):
+                continue
+            topic = raw.get("topic") if isinstance(raw.get("topic"), dict) else {}
+            purpose = raw.get("purpose") if isinstance(raw.get("purpose"), dict) else {}
+            channels.append({
+                "id": str(raw["id"]),
+                "name": str(raw["name"]),
+                "is_archived": bool(raw.get("is_archived", False)),
+                "is_general": bool(raw.get("is_general", False)),
+                "is_member": bool(raw.get("is_member", False)),
+                "created": int(raw.get("created", 0)),
+                "num_members": int(raw.get("num_members", 0)),
+                "topic": str(topic.get("value", "")),
+                "topic_last_set": int(topic.get("last_set", 0)),
+                "purpose": str(purpose.get("value", "")),
+                "purpose_last_set": int(purpose.get("last_set", 0)),
+            })
+        cursor = str(payload.get("response_metadata", {}).get("next_cursor", ""))
+        if not cursor:
+            break
+    return sorted(channels, key=lambda item: (item["is_archived"], item["name"]))
+
+
+def classify_channels(channels: list[dict[str, Any]], desired: set[str], usage: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    classified: list[dict[str, Any]] = []
+    for channel in channels:
+        item = dict(channel)
+        name = str(item["name"])
+        if item.get("is_general"):
+            role = "workspace-general"
+        elif name == "attention":
+            role = "human-gate"
+        elif name == "agent-ops":
+            role = "cross-project-ops"
+        elif name in desired:
+            role = "project-route"
+        elif name.startswith("proj-"):
+            role = "legacy-route"
+        else:
+            role = "unmanaged"
+        item["role"] = role
+        item["desired"] = name in desired
+        item["outbound"] = usage.get(name, {"sent_records": 0, "last_queued_at": None})
+        classified.append(item)
+    return classified
+
+
+def channel_inventory(runner: Runner = default_runner) -> dict[str, Any]:
+    plan = dev_result(["slack", "plan"], runner)
+    desired = {str(value) for value in plan.get("channels", [])}
+    channels = classify_channels(list_live_channels(), desired, outbound_usage())
+    return {
+        "schema": "slack-ops.channels.v1",
+        "observed_at": utc_now().isoformat(),
+        "source": "slack:conversations.list",
+        "channels": channels,
+        "summary": {
+            "total": len(channels),
+            "active": sum(not item["is_archived"] for item in channels),
+            "archived": sum(item["is_archived"] for item in channels),
+            "desired": sum(item["desired"] for item in channels),
+            "unmanaged_active": sum(not item["is_archived"] and item["role"] in {"unmanaged", "legacy-route"} for item in channels),
+        },
+    }
+
+
+def incident_fingerprint(incident: dict[str, Any]) -> str:
+    material = json.dumps(incident, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(material).hexdigest()
+
+
+def load_sync_state() -> dict[str, Any]:
+    payload = read_json(ops_state_dir() / "state.json", {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def report(project: str, kind: str, message: str, next_action: str, runner: Runner) -> None:
+    dev_result(["report", project, "--type", kind, "--message", message, "--next", next_action], runner)
+
+
+def sync(*, apply: bool, runner: Runner = default_runner, now: dt.datetime | None = None) -> dict[str, Any]:
+    with state_lock():
+        snapshot = collect_snapshot(runner)
+        observed = now or utc_now()
+        today = observed.astimezone(dt.timezone.utc).date().isoformat()
+        state = load_sync_state()
+        previous = state.get("active_incidents", {})
+        if not isinstance(previous, dict):
+            previous = {}
+        current = {item["id"]: incident_fingerprint(item) for item in snapshot["incidents"]}
+        by_id = {item["id"]: item for item in snapshot["incidents"]}
+        opened = sorted(key for key, value in current.items() if previous.get(key) != value)
+        recovered = sorted(set(previous) - set(current))
+        digest_due = state.get("last_digest_date") != today
+        planned = {
+            "opened": opened,
+            "recovered": recovered,
+            "digest_due": digest_due,
+            "apply": apply,
+        }
+        if not apply:
+            return {"snapshot": snapshot, "plan": planned, "queued": 0, "flush": None}
+
+        queued = 0
+        for incident_id in opened:
+            incident = by_id[incident_id]
+            report(
+                "dotfiles",
+                "blocker" if incident["severity"] == "page" else "decision",
+                f"[INCIDENT] {incident['summary']}",
+                f"Inspect {incident['evidence']} and record the canonical resolution.",
+                runner,
+            )
+            queued += 1
+        for incident_id in recovered:
+            report(
+                "dotfiles",
+                "progress",
+                f"[RECOVERY] {incident_id} is no longer present in the observed incident set",
+                "No action unless the condition recurs.",
+                runner,
+            )
+            queued += 1
+        if digest_due:
+            channel_state = snapshot["channels"]
+            outbox = snapshot["slack_outbox"]
+            report(
+                "realm",
+                "progress",
+                (
+                    "[COMPANY DIGEST] "
+                    f"{len(snapshot['incidents'])} active incidents; "
+                    f"Slack outbox {outbox.get('pending', 0)} pending/{outbox.get('failed', 0)} failed; "
+                    f"{len(channel_state['desired'])} managed routes; "
+                    f"{len(channel_state['unmanaged_cached'])} unmanaged cached channels."
+                ),
+                "Open project evidence for detail; use #attention only for unresolved human gates.",
+                runner,
+            )
+            queued += 1
+
+        flush_result = dev_result(["slack", "flush"], runner) if queued else None
+        atomic_json(ops_state_dir() / "state.json", {
+            "schema": "slack-ops.state.v1",
+            "updated_at": observed.isoformat(),
+            "active_incidents": current,
+            "last_digest_date": today if digest_due else state.get("last_digest_date"),
+        })
+        return {"snapshot": snapshot, "plan": planned, "queued": queued, "flush": flush_result}
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="slack-ops", description=__doc__)
+    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("snapshot", help="collect read-only operating state")
+    commands.add_parser("channels", help="inventory live public Slack channels")
+    sync_parser = commands.add_parser("sync", help="plan or emit deduplicated incidents and one daily digest")
+    sync_parser.add_argument("--apply", action="store_true", help="queue reports through dev and flush the existing outbox")
+    return parser
+
+
+def render_human(command: str, payload: dict[str, Any]) -> str:
+    if command == "snapshot":
+        return (
+            f"Slack ops snapshot: {len(payload['incidents'])} incidents, "
+            f"{payload['slack_outbox'].get('pending', 0)} pending, "
+            f"{len(payload['channels']['unmanaged_cached'])} unmanaged cached channels."
+        )
+    if command == "channels":
+        summary = payload["summary"]
+        return (
+            f"Slack channels: {summary['active']} active, {summary['archived']} archived, "
+            f"{summary['desired']} managed, {summary['unmanaged_active']} unmanaged active."
+        )
+    return (
+        f"Slack ops sync: queued {payload['queued']}; "
+        f"opened {len(payload['plan']['opened'])}; recovered {len(payload['plan']['recovered'])}; "
+        f"apply={str(payload['plan']['apply']).lower()}."
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "snapshot":
+            payload = collect_snapshot()
+        elif args.command == "channels":
+            payload = channel_inventory()
+        else:
+            payload = sync(apply=bool(args.apply))
+    except OpsError as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))
+        else:
+            print(f"slack-ops: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({"ok": True, "result": payload}, sort_keys=True))
+    else:
+        print(render_human(args.command, payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

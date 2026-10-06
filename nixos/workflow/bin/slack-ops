@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Installed entrypoint for the dev-workflow Slack operating layer."""
+
+from pathlib import Path
+import os
+import runpy
+
+
+def main() -> None:
+    data_home = Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser()
+    module = data_home / "dev-workflow" / "slack_ops" / "cli.py"
+    runpy.run_path(str(module), run_name="__main__")
+
+
+if __name__ == "__main__":
+    main()

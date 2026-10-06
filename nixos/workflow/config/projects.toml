@@ -28,6 +28,10 @@ aliases = ["city", "ops-map"]
 path = "/home/merulox/projects/commander"
 aliases = ["cmd", "control-center"]
 
+[projects.bea]
+path = "/home/merulox/scripts"
+aliases = ["chief-of-staff"]
+
 [projects.boreal]
 path = "/home/merulox/projects/boreal"
 aliases = ["bn", "boreal-numerique"]
