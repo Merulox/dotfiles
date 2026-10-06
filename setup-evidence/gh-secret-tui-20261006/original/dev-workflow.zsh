@@ -18,18 +18,6 @@ alias dr='dev review'
 alias dres='dev resume'
 alias ds='dev sync'
 
-# Keep the normal GitHub CLI surface intact; only bare interactive
-# `gh secret` (or explicit `gh secret tui`) opens the write-only manager.
-gh() {
-  if [[ "$1" == "secret" ]] \
-      && { (( $# == 1 )) || [[ $# == 2 && "$2" == "tui" ]]; } \
-      && [[ -o interactive ]]; then
-    command gh-secret-tui
-    return
-  fi
-  command gh "$@"
-}
-
 # Change to a configured project without evaluating command output as shell code.
 dproj() {
   if (( $# != 1 )); then

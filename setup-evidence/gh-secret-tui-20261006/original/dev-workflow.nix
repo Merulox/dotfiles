@@ -46,11 +46,6 @@
     executable = true;
   };
 
-  home.file.".local/bin/gh-secret-tui" = {
-    source = ../workflow/bin/gh-secret-tui;
-    executable = true;
-  };
-
   xdg.configFile."dev-workflow/projects.toml".source =
     ../workflow/config/projects.toml;
   xdg.configFile."dev-workflow/dev-workflow.zsh".source =

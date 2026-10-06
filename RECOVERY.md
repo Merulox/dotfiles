@@ -245,3 +245,13 @@ sqlite3 /path/to/latest/crm-YYYYMMDD-HHMMSS.db 'PRAGMA integrity_check;'
 ```
 
 A green timer without a recent remote artifact is not a verified backup. Periodically perform a staged restore; backup creation alone does not prove recoverability.
+
+## Handoff — 2026-10-06 — interactive `gh secret`
+
+- Completed: added a Textual secret manager, exact interactive zsh dispatch, declarative Home Manager installation, selected-repository policy preservation, mutation serialization, and repository/environment/organization/user application scopes.
+- Exact next action: open a new zsh and run `gh secret`; use `n` to set, `e` to update, `d` to delete, `s` for scope, and `a` for Actions/Agents/Codespaces/Dependabot.
+- Blockers: none.
+- Branch/commit: `main`; the atomic task commit containing this handoff (see `git log -1 --oneline` after checkout).
+- Changed files: `nixos/workflow/bin/gh-secret-tui`, `nixos/workflow/shell/dev-workflow.zsh`, `nixos/home/dev-workflow.nix`, `tests/test_gh_secret_tui.py`, `TASKS.md`, `DECISIONS.md`, `RECOVERY.md`.
+- Verification: `python3 -m unittest discover -v tests` → `Ran 106 tests in 36.113s`, `OK`, exit 0; pseudo-terminal `gh secret` smoke → marker `GitHub Secrets`, exit 0; isolated `ROLLBACK.sh --root <copy>` → original hashes and `REAL_GH:secret`, exit 0.
+- Rollback: run `setup-evidence/gh-secret-tui-20261006/ROLLBACK.sh --activate` from the task checkout to restore source and activate original bare-command behavior.

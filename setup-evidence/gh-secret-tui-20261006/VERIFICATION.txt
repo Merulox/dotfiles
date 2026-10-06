@@ -1,0 +1,103 @@
+GH SECRET TUI VERIFICATION
+==========================
+
+Changed branch: main
+Changed field: nixos/workflow/shell/dev-workflow.zsh gh() dispatch branch for interactive argv ["secret"] and ["secret", "tui"]
+
+Four required artifact paths
+----------------------------
+MODIFIED_FILE: /home/merulox/git/dotfiles/nixos/workflow/bin/gh-secret-tui
+DIFF_FILE: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/gh-secret-tui.diff
+VERIFICATION.txt: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/VERIFICATION.txt
+ROLLBACK.sh: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/ROLLBACK.sh
+
+Original preservation
+---------------------
+Original gh executable: /home/merulox/.local/state/nix/profiles/home-manager/home-path/bin/gh
+Original gh SHA-256: d4d3010c37dfa37e6fe31270c5795c200b9926d9e0a2ba8570d4d1fe20747f40
+Original source hashes: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/ORIGINAL_SHA256.txt
+Preserved source copies: /home/merulox/git/dotfiles/setup-evidence/gh-secret-tui-20261006/original/
+
+BASELINE
+--------
+Exact command: gh secret
+Input: no stdin; no subcommand; cwd outside a Git repository
+Literal output/result:
+Secrets can be set at the repository, or organization level for use in
+GitHub Actions, Agents, or Dependabot. User, organization, and repository secrets can be set for
+use in GitHub Codespaces. Environment secrets can be set for use in
+GitHub Actions. Run `gh help secret set` to learn how to get started.
+
+
+USAGE
+  gh secret <command> [flags]
+
+AVAILABLE COMMANDS
+  delete:        Delete secrets
+  list:          List secrets
+  set:           Create or update secrets
+
+FLAGS
+  -R, --repo [HOST/]OWNER/REPO   Select another repository using the [HOST/]OWNER/REPO format
+
+INHERITED FLAGS
+  --help   Show help for command
+
+LEARN MORE
+  Use `gh <command> <subcommand> --help` for more information about a command.
+  Read the manual at https://cli.github.com/manual
+  Learn about exit codes using `gh help exit-codes`
+  Learn about accessibility experiences using `gh help accessibility`
+Exit status: 0
+
+MODIFIED
+--------
+Exact command: zsh -fic 'source ~/.config/dev-workflow/dev-workflow.zsh; path=(<fixture-bin> $path); gh secret'
+Input: interactive zsh; argv=["secret"]; fixture gh-secret-tui prints one launch marker
+Literal output/result: TUI_LAUNCHED
+Exit status: 0
+
+Exact pass-through command: zsh -fic 'source ~/.config/dev-workflow/dev-workflow.zsh; path=(<fixture-bin> $path); gh secret list --repo acme/api'
+Input: interactive zsh; argv=["secret", "list", "--repo", "acme/api"]
+Literal output/result: BACKEND_GH:secret list --repo acme/api
+Exit status: 0
+
+Exact live TUI smoke command: (sleep 2; printf q) | GH_SECRET_TUI_GH=<fixture-gh> script -qfec "zsh -ic 'cd /home/merulox/git/dotfiles && gh secret'" TUI_SMOKE.typescript
+Input: delayed q key through a real pseudo-terminal; fixture backend returns repository Merulox/dotfiles and [] secret metadata
+Literal output/result: marker=GitHub Secrets
+Exit status: 0
+
+Exact focused test command: python3 -m unittest -v tests.test_gh_secret_tui
+Input: 13 deterministic unit, Textual pilot, backend, and zsh-dispatch tests
+Literal output/result: Ran 13 tests in 0.814s; OK
+Exit status: 0
+
+Exact complete test command: python3 -m unittest discover -v tests
+Input: complete dotfiles test suite
+Literal output/result: Ran 106 tests in 36.113s; OK
+Exit status: 0
+
+Authenticated read-only command: zsh -fic 'source ~/.config/dev-workflow/dev-workflow.zsh; cd /home/merulox/git/dotfiles; gh secret list --app actions --repo Merulox/dotfiles --json name --jq length'
+Input: active GitHub CLI authentication; repository metadata only
+Literal output/result: 0
+Exit status: 0
+
+ROLLBACK
+--------
+Exact command: /tmp/tmp.ZfXFqgEzOp/setup-evidence/gh-secret-tui-20261006/ROLLBACK.sh --root /tmp/tmp.ZfXFqgEzOp
+Input: isolated copy containing the modified module, shell dispatcher, TUI, tests, and preserved originals
+Literal output/result: ROLLBACK restored bare gh secret help behavior; root=/tmp/tmp.ZfXFqgEzOp; activated=0
+Exit status: 0
+
+Exact restored-behavior command: zsh -fc 'source /tmp/tmp.ZfXFqgEzOp/nixos/workflow/shell/dev-workflow.zsh; path=(<fixture-bin> $path); gh secret'
+Input: rolled-back shell source; fake original gh backend
+Literal output/result: REAL_GH:secret
+Exit status: 0
+Restored behavior/status: the isolated copy removed gh-secret-tui and its test, restored both modified existing files byte-for-byte to their preserved SHA-256 originals, and bare gh secret again delegated to the original GitHub CLI behavior. The canonical/live copy was not rolled back and remains active.
+
+Live state
+----------
+Home Manager activation: /nix/store/dap0h1cav1r431xypbdfn02hvhqlnx3f-home-manager-generation
+Installed TUI target: /nix/store/cgqiv8apbnik8xj8x66lknrmv0kzmnj3-hm_ghsecrettui
+Installed shell target: /nix/store/0gp0wbywp8vdq6rw7i74lpmxk54ln2bm-hm_devworkflow.zsh
+Behavior: interactive bare gh secret opens the TUI; gh secret list/set/delete/--help and all non-secret gh commands pass through unchanged; non-interactive bare gh secret preserves original help behavior.
