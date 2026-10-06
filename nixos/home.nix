@@ -58,7 +58,7 @@
   home.username = "merulox";
   home.homeDirectory = "/home/merulox";
   home.stateVersion = "24.05";
-  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools pkgs.khal pkgs.vdirsyncer pkgs.urbit protonDriveCli backupSecretsProton grokBot ];
+  home.packages = [ pkgs.atool pkgs.httpie pkgs.inotify-tools pkgs.khal pkgs.vdirsyncer pkgs.urbit protonDriveCli backupSecretsProton grokBot pkgs.vinegar ];
 
   # imports
   imports = [
@@ -897,6 +897,7 @@
   "$HOME/.local/bin"
   "/usr/local/bin/"
   "$HOME/scripts"
+  "$HOME/.rokit/bin" # Roblox toolchain shims (pins live in each project rokit.toml)
   ];
 
   # Daily backup timers
