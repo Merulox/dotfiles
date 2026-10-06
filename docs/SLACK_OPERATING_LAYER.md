@@ -11,11 +11,14 @@ slack-ops --json snapshot
 # Complete bot-visible public-channel inventory; metadata only
 slack-ops --json channels
 
-# Show incidents/recoveries/daily-digest work without writing
+# Show incident/recovery work without writing
 slack-ops --json sync
 
-# Queue deduplicated projections through dev, then flush its outbox
+# Queue deduplicated incident projections through dev, then flush its outbox
 slack-ops --json sync --apply
+
+# Manually include the once-per-UTC-day company digest
+slack-ops --json sync --apply --digest
 ```
 
 ## Projection contract
@@ -30,9 +33,9 @@ The collector currently observes:
 
 It emits only through `dev report`:
 
-- new or changed incidents route as `dotfiles` blocker/decision reports;
+- digest-severity incidents route as `dotfiles` progress reports; page-severity incidents use blocker reports and reach `attention`;
 - recovered incident IDs route as `dotfiles` progress reports;
-- one UTC daily company digest routes as a `realm` progress report;
+- an optional once-per-UTC-day company digest routes as a `realm` progress report; it remains manual until the channel audit produces an HQ route;
 - `dev slack flush` remains the only delivery path.
 
 The collector never writes project state, Slack channel cache, Slack history, project routing, or authoritative outcome data.
@@ -41,11 +44,11 @@ The collector never writes project state, Slack channel cache, Slack history, pr
 
 State lives in `~/.local/state/dev-workflow/slack-ops/state.json`, protected by a process lock and written atomically. The lock covers observation, report queueing, flush invocation, and state commit, so concurrent timer/manual invocations cannot queue duplicate digest or incident reports.
 
-If `dev report` fails, state is not advanced. If report queueing succeeds but delivery fails, the collector records the projection as emitted because the existing `dev` outbox owns durable retry.
+Every projection first persists a deterministic pending emission. After `dev report` returns, its event receipt is recorded. If the process dies in that gap, the next run reconciles the pending emission against the durable `events.jsonl` project/type/message/next tuple before retrying. Partial batches therefore retry only emissions that have no durable `dev` event. Every applied sync invokes `dev slack flush`, even when it queues no new report, so delivery interrupted after a committed report remains replayable through the existing outbox.
 
 ## Timer
 
-Home Manager installs `slack-ops-sync.timer`, which starts five minutes after activation and then runs every fifteen minutes with jitter. The oneshot service uses `sync --apply`; unchanged state creates no reports.
+Home Manager installs `slack-ops-sync.timer`, which starts five minutes after activation and then runs every fifteen minutes with jitter. The oneshot service uses `sync --apply`; unchanged state creates no reports but still flushes any durable pending/failed outbox delivery.
 
 ```bash
 systemctl --user status slack-ops-sync.timer

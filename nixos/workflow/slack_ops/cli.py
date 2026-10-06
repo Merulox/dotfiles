@@ -177,6 +177,7 @@ def collect_snapshot(runner: Runner = default_runner) -> dict[str, Any]:
         incidents.append({
             "id": "dev-slack-outbox",
             "kind": "delivery",
+            "state": "failed" if int(status.get("failed", 0)) > 0 else "pending",
             "severity": "page" if int(status.get("failed", 0)) > 0 else "digest",
             "summary": f"Slack outbox has {status.get('failed', 0)} failed and {status.get('pending', 0)} pending deliveries",
             "evidence": str(status.get("ledger", "")),
@@ -185,6 +186,7 @@ def collect_snapshot(runner: Runner = default_runner) -> dict[str, Any]:
         incidents.append({
             "id": f"systemd-user:{unit['unit']}",
             "kind": "runtime",
+            "state": f"{unit['active']}/{unit['sub']}",
             "severity": "digest",
             "summary": f"{unit['unit']} is {unit['active']}/{unit['sub']}",
             "evidence": f"systemctl --user status {unit['unit']}",
@@ -350,7 +352,8 @@ def channel_inventory(runner: Runner = default_runner) -> dict[str, Any]:
 
 
 def incident_fingerprint(incident: dict[str, Any]) -> str:
-    material = json.dumps(incident, sort_keys=True, separators=(",", ":")).encode()
+    stable = {key: incident.get(key) for key in ("id", "kind", "severity", "state")}
+    material = json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(material).hexdigest()
 
 
@@ -359,14 +362,145 @@ def load_sync_state() -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def report(project: str, kind: str, message: str, next_action: str, runner: Runner) -> None:
-    dev_result(["report", project, "--type", kind, "--message", message, "--next", next_action], runner)
+def report(project: str, kind: str, message: str, next_action: str, runner: Runner) -> dict[str, Any]:
+    return dev_result(["report", project, "--type", kind, "--message", message, "--next", next_action], runner)
 
 
-def sync(*, apply: bool, runner: Runner = default_runner, now: dt.datetime | None = None) -> dict[str, Any]:
+def emission_key(payload: dict[str, str]) -> str:
+    emission_id = payload.get("emission_id", "").strip()
+    if not emission_id:
+        raise OpsError("emission payload is missing emission_id")
+    return hashlib.sha256(emission_id.encode()).hexdigest()
+
+def parse_timestamp(value: object) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def event_log_size() -> int:
+    try:
+        return (workflow_state_dir() / "events.jsonl").stat().st_size
+    except FileNotFoundError:
+        return 0
+
+
+def matching_event(intent: dict[str, Any]) -> dict[str, Any] | None:
+    path = workflow_state_dir() / "events.jsonl"
+    try:
+        with path.open("rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            offset = int(intent.get("events_offset", 0))
+            if offset < 0 or offset > size:
+                return None
+            handle.seek(offset)
+            lines = handle.read().decode("utf-8").splitlines()
+    except (FileNotFoundError, UnicodeDecodeError, ValueError, TypeError):
+        return None
+    payload = intent.get("payload", {})
+    if not isinstance(payload, dict):
+        return None
+    pending_at = parse_timestamp(intent.get("pending_at"))
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        event_at = parse_timestamp(event.get("timestamp"))
+        if (
+            pending_at is not None
+            and event_at is not None
+            and str(event.get("project", "")) == str(payload.get("project", ""))
+            and str(event.get("type", "")) == str(payload.get("kind", ""))
+            and str(event.get("message", "")) == str(payload.get("message", ""))
+            and str(event.get("next", "")) == str(payload.get("next_action", ""))
+            and event_at >= pending_at
+        ):
+            return event
+    return None
+
+
+def queue_once(
+    state: dict[str, Any],
+    payload: dict[str, str],
+    runner: Runner,
+    observed_at: str,
+    post_report_hook: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
+) -> bool:
+    emissions = state.setdefault("emissions", {})
+    if not isinstance(emissions, dict):
+        emissions = {}
+        state["emissions"] = emissions
+    key = emission_key(payload)
+    existing = emissions.get(key)
+    effective_payload = payload
+    intent: dict[str, Any]
+    if isinstance(existing, dict):
+        stored_payload = existing.get("payload")
+        if not isinstance(stored_payload, dict):
+            raise OpsError(f"emission {payload['emission_id']} has no stored payload")
+        for field in ("emission_id", "project", "kind"):
+            if stored_payload.get(field) != payload.get(field):
+                raise OpsError(f"emission identity collision for {payload['emission_id']}: {field}")
+        effective_payload = stored_payload
+        if existing.get("status") == "queued":
+            return False
+        if existing.get("status") != "pending":
+            raise OpsError(f"emission {payload['emission_id']} has invalid status")
+        event = matching_event(existing)
+        if event is not None:
+            existing.update({"status": "queued", "event_id": event.get("id"), "queued_at": event.get("timestamp")})
+            atomic_json(ops_state_dir() / "state.json", state)
+            return False
+        intent = existing
+    else:
+        intent = {
+            "status": "pending",
+            "pending_at": observed_at,
+            "events_offset": event_log_size(),
+            "payload": payload,
+        }
+        emissions[key] = intent
+        atomic_json(ops_state_dir() / "state.json", state)
+    result = report(
+        effective_payload["project"],
+        effective_payload["kind"],
+        effective_payload["message"],
+        effective_payload["next_action"],
+        runner,
+    )
+    if post_report_hook is not None:
+        post_report_hook(intent, result)
+    intent.update({
+        "status": "queued",
+        "event_id": result.get("id"),
+        "queued_at": result.get("timestamp", observed_at),
+    })
+    atomic_json(ops_state_dir() / "state.json", state)
+    return True
+
+
+def sync(
+    *,
+    apply: bool,
+    include_digest: bool = False,
+    runner: Runner = default_runner,
+    now: dt.datetime | None = None,
+    post_report_hook: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     with state_lock():
         snapshot = collect_snapshot(runner)
         observed = now or utc_now()
+        observed_at = observed.isoformat()
+        emission_pending_at = observed.replace(microsecond=0).isoformat(timespec="seconds")
         today = observed.astimezone(dt.timezone.utc).date().isoformat()
         state = load_sync_state()
         previous = state.get("active_incidents", {})
@@ -376,7 +510,8 @@ def sync(*, apply: bool, runner: Runner = default_runner, now: dt.datetime | Non
         by_id = {item["id"]: item for item in snapshot["incidents"]}
         opened = sorted(key for key, value in current.items() if previous.get(key) != value)
         recovered = sorted(set(previous) - set(current))
-        digest_due = state.get("last_digest_date") != today
+        digest_due = include_digest and state.get("last_digest_date") != today
+        transition_version = int(state.get("generation", 0)) + 1
         planned = {
             "opened": opened,
             "recovered": recovered,
@@ -386,51 +521,54 @@ def sync(*, apply: bool, runner: Runner = default_runner, now: dt.datetime | Non
         if not apply:
             return {"snapshot": snapshot, "plan": planned, "queued": 0, "flush": None}
 
-        queued = 0
+        emissions: list[dict[str, str]] = []
         for incident_id in opened:
             incident = by_id[incident_id]
-            report(
-                "dotfiles",
-                "blocker" if incident["severity"] == "page" else "decision",
-                f"[INCIDENT] {incident['summary']}",
-                f"Inspect {incident['evidence']} and record the canonical resolution.",
-                runner,
-            )
-            queued += 1
+            emissions.append({
+                "emission_id": f"incident-open:{incident_id}:{current[incident_id]}:g{transition_version}",
+                "project": "dotfiles",
+                "kind": "blocker" if incident["severity"] == "page" else "progress",
+                "message": f"[INCIDENT] {incident['summary']}",
+                "next_action": f"Inspect {incident['evidence']} and record the canonical resolution.",
+            })
         for incident_id in recovered:
-            report(
-                "dotfiles",
-                "progress",
-                f"[RECOVERY] {incident_id} is no longer present in the observed incident set",
-                "No action unless the condition recurs.",
-                runner,
-            )
-            queued += 1
+            emissions.append({
+                "emission_id": f"incident-recovered:{incident_id}:{previous[incident_id]}:g{transition_version}",
+                "project": "dotfiles",
+                "kind": "progress",
+                "message": f"[RECOVERY] {incident_id} is no longer present in the observed incident set",
+                "next_action": "No action unless the condition recurs.",
+            })
         if digest_due:
             channel_state = snapshot["channels"]
             outbox = snapshot["slack_outbox"]
-            report(
-                "realm",
-                "progress",
-                (
+            emissions.append({
+                "emission_id": f"company-digest:{today}",
+                "project": "realm",
+                "kind": "progress",
+                "message": (
                     "[COMPANY DIGEST] "
                     f"{len(snapshot['incidents'])} active incidents; "
                     f"Slack outbox {outbox.get('pending', 0)} pending/{outbox.get('failed', 0)} failed; "
                     f"{len(channel_state['desired'])} managed routes; "
                     f"{len(channel_state['unmanaged_cached'])} unmanaged cached channels."
                 ),
-                "Open project evidence for detail; use #attention only for unresolved human gates.",
-                runner,
-            )
-            queued += 1
+                "next_action": "Open project evidence for detail; use #attention only for unresolved human gates.",
+            })
 
-        flush_result = dev_result(["slack", "flush"], runner) if queued else None
-        atomic_json(ops_state_dir() / "state.json", {
+        queued = sum(
+            queue_once(state, payload, runner, emission_pending_at, post_report_hook)
+            for payload in emissions
+        )
+        flush_result = dev_result(["slack", "flush"], runner)
+        state.update({
             "schema": "slack-ops.state.v1",
-            "updated_at": observed.isoformat(),
+            "updated_at": observed_at,
             "active_incidents": current,
             "last_digest_date": today if digest_due else state.get("last_digest_date"),
+            "generation": transition_version,
         })
+        atomic_json(ops_state_dir() / "state.json", state)
         return {"snapshot": snapshot, "plan": planned, "queued": queued, "flush": flush_result}
 
 
@@ -440,8 +578,13 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("snapshot", help="collect read-only operating state")
     commands.add_parser("channels", help="inventory live public Slack channels")
-    sync_parser = commands.add_parser("sync", help="plan or emit deduplicated incidents and one daily digest")
+    sync_parser = commands.add_parser("sync", help="plan or emit deduplicated incidents")
     sync_parser.add_argument("--apply", action="store_true", help="queue reports through dev and flush the existing outbox")
+    sync_parser.add_argument(
+        "--digest",
+        action="store_true",
+        help="also emit the UTC daily company digest (manual until an HQ route exists)",
+    )
     return parser
 
 
@@ -474,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "channels":
             payload = channel_inventory()
         else:
-            payload = sync(apply=bool(args.apply))
+            payload = sync(apply=bool(args.apply), include_digest=bool(args.digest))
     except OpsError as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))
