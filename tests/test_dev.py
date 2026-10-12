@@ -336,6 +336,66 @@ class DevTest(unittest.TestCase):
         self.assertEqual(channels.count("agent-ops"), 2)
         self.assertEqual(channels.count("attention"), 1)
 
+    def test_bea_report_hides_transport_markers_only_in_slack_presentation(self) -> None:
+        bea_path = self.root / "bea"
+        bea_path.mkdir()
+        with self.config.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f'\n[projects.bea]\npath = {json.dumps(str(bea_path))}\n'
+            )
+        message = "Bea: This is still the bottleneck. I'll wait for your go-ahead."
+        next_step = "[approval_required] Call the most recent lead."
+
+        self.run_dev(
+            "report",
+            "bea",
+            "--type",
+            "blocker",
+            "--message",
+            message,
+            "--next",
+            next_step,
+        )
+
+        event = json.loads((self.state / "events.jsonl").read_text().splitlines()[-1])
+        expected = (
+            "[blocker] bea: This is still the bottleneck. I'll wait for your go-ahead.\n"
+            "Next: Call the most recent lead."
+        )
+        self.assertEqual(event["message"], message)
+        self.assertEqual(event["next"], next_step)
+        self.assertTrue(
+            all(delivery["text"] == expected for delivery in event["delivery_plan"])
+        )
+
+        cli = self.load_cli()
+        non_bea = cli.report_delivery_plan(
+            {"id": "alpha", "channel": "alpha"},
+            "blocker",
+            message,
+            next_step,
+        )
+        self.assertTrue(
+            all(
+                delivery["text"]
+                == f"[blocker] alpha: {message}\nNext: {next_step}"
+                for delivery in non_bea
+            )
+        )
+        marker_free = cli.report_delivery_plan(
+            {"id": "bea", "channel": "bea"},
+            "progress",
+            "No prefix",
+            "  preserve indentation",
+        )
+        self.assertTrue(
+            all(
+                delivery["text"]
+                == "[progress] bea: No prefix\nNext:   preserve indentation"
+                for delivery in marker_free
+            )
+        )
+
     def test_review_and_sync_are_deterministic_and_only_replace_generated_file(self) -> None:
         self.run_dev("task", "alpha", "Review me")
         decisions = self.alpha / ".agent" / "DECISIONS.md"

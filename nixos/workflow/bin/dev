@@ -465,9 +465,16 @@ def report_delivery_plan(project: dict[str, Any], kind: str, message: str, next_
     if kind in {"blocker", "decision"}:
         channels.append(attention)
     channels = list(dict.fromkeys(channels))
-    text = f"[{kind}] {project['id']}: {message}"
-    if next_step:
-        text += f"\nNext: {next_step}"
+    display_message = message
+    display_next = next_step
+    if project["id"] == "bea":
+        display_message = display_message.removeprefix("Bea: ")
+        approval_marker = "[approval_required]"
+        if display_next.startswith(approval_marker):
+            display_next = display_next[len(approval_marker):].lstrip()
+    text = f"[{kind}] {project['id']}: {display_message}"
+    if display_next:
+        text += f"\nNext: {display_next}"
     return [{"channel": str(channel), "text": text} for channel in channels]
 
 
