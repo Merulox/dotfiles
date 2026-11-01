@@ -513,17 +513,17 @@ bar {
      status_command i3blocks -c ~/i3blocks/i3blocks.conf
 
     colors {
-        background #000000
-        statusline #ffffff
-        separator #666666
+        background #24202e
+        statusline #e6e3ec
+        separator #494151
 
         # colorclass           border  backgr. text
 
-        focused_workspace  #4c7899 #285577 #ffffff
-        active_workspace   #333333 #5f676a #ffffff
-        inactive_workspace #333333 #222222 #888888
-        urgent_workspace   #2f343a #900000 #ffffff
-        binding_mode       #2f343a #900000 #ffffff 
+        focused_workspace  #9782b3 #c7b6dc #1c1525
+        active_workspace   #6e5e83 #3a2f49 #eee6f6
+        inactive_workspace #2c2735 #15121c #b0a8bd
+        urgent_workspace   #ff9eb1 #ff9eb1 #1c1525
+        binding_mode       #b0df9b #b0df9b #1c1525
     }} 
    ##STOP THEMING BAR
 
